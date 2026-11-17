@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f4e79">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Aree di danno">
+<title>Aree di danno e di sicurezza</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="vendor/leaflet.css">
+<link rel="stylesheet" href="css/app.css">
+<link rel="stylesheet" href="css/extra.css">
+</head>
+<body>
+<header>
+  <div class="hrow">
+    <div>
+      <h1>Aree di danno e di sicurezza</h1>
+      <p>v1.0-beta · stime di supporto tecnico (parere tecnico), non atti amministrativi <span id="netstato"></span></p>
+    </div>
+    <button id="btnSet" class="icon" type="button" aria-label="Impostazioni">⚙</button>
+  </div>
+</header>
+<main>
+<section class="card hide" id="setbox">
+  <h2>Impostazioni report</h2>
+  <label for="sNome">Firmatario</label><input id="sNome" autocomplete="name">
+  <label for="sQual">Qualifica</label><input id="sQual">
+  <p class="small">Intestazione del report: carta intestata (quando disponibile) + firmatario e qualifica.</p>
+  <p class="small">Dati salvati solo su questo dispositivo.</p>
+  <button id="sSave" type="button">Salva</button>
+</section>
+
+<section class="card">
+<h2>1 · Merce</h2>
+<label for="onu">Numero ONU</label>
+<input id="onu" list="onulist" inputmode="numeric" placeholder="es. 1993" autocomplete="off">
+<datalist id="onulist"></datalist>
+<div id="idbox"></div>
+</section>
+
+<section class="card hide" id="inbox">
+<h2>2 · Rilascio</h2>
+<div id="fields"></div>
+</section>
+
+<section class="card hide" id="meteobox">
+<h2>3 · Meteo</h2>
+<div class="chips">
+<button class="chip on" id="mPre" type="button">D5 + F2 (predefinito)</button>
+<button class="chip" id="mUser" type="button">Meteo reale</button>
+</div>
+<div id="meteoUser" class="hide">
+<div class="row">
+<div><label>Stabilità</label><select id="stab"><option>A</option><option>B</option><option>C</option><option selected>D</option><option>E</option><option>F</option></select></div>
+<div><label>Vento (m/s)</label><input id="vento" type="number" step="0.1" value="5" inputmode="decimal"></div>
+<div><label>Temp. (°C)</label><input id="temp" type="number" step="1" value="20" inputmode="decimal"></div>
+</div>
+</div>
+</section>
+
+<section class="card" id="luogobox">
+<h2>Data e luogo dell'evento</h2>
+<div class="row">
+  <div><label for="evData">Data e ora</label><input id="evData" type="datetime-local"></div>
+</div>
+<label for="evLuogo">Luogo (riportato nel report)</label>
+<input id="evLuogo" placeholder="es. Porto Canale di Cagliari, banchina …">
+<label>Posizione sulla mappa</label>
+<div class="chips">
+<button class="chip" id="btnGPS" type="button">📍 Usa la mia posizione</button>
+<span class="small" id="coord">Tocca la mappa per posizionare la sorgente</span>
+</div>
+<div id="map"></div>
+</section>
+
+<button id="calc" class="hide" type="button">Calcola le zone</button>
+
+<section id="out">
+<div class="card">
+<h2>Zone</h2>
+<div class="tabs" id="tabs"></div>
+<div class="chips" style="margin-bottom:8px">
+  <button class="chip on" id="vMap" type="button">Mappa</button>
+  <button class="chip" id="vSch" type="button">Schema</button>
+</div>
+<div id="graf" class="hide"></div>
+<p class="small" id="grafnote"></p>
+</div>
+<div class="card"><h2>Distanze</h2><div id="tab"></div></div>
+<div class="card"><h2>Ipotesi di calcolo</h2><ul class="ip" id="ip"></ul><div id="avv"></div></div>
+<div class="card"><h2>ERG 2024 – confronto</h2><div id="ergbox"></div></div>
+<button id="print" type="button">Stampa / salva PDF</button>
+<button class="sec" id="copy" type="button">Copia il report</button>
+<p class="small" id="copymsg"></p>
+</section>
+<p class="small" style="margin:18px 4px">Soglie D.M. 9/5/2001 (Tab. 2) · Zone: Linee guida PEE, Direttiva 7/12/2022 · Dati merci: IMDG Code 42-24, ERG 2024 · Mappa © contributori OpenStreetMap.</p>
+</main>
+
+<div id="report"></div>
+
+<script src="vendor/leaflet.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/data.js"></script>
+<script src="js/app.base.js"></script>
+<script src="js/app.extra.js"></script>
+</body>
+</html>

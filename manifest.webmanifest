@@ -1,0 +1,17 @@
+{
+  "name": "Aree di danno e di sicurezza – merci pericolose",
+  "short_name": "Aree di danno",
+  "description": "Stima delle aree di danno e di sicurezza per merci pericolose (D.M. 9/5/2001, ERG 2024, IMDG Code). Parere tecnico, non atto amministrativo.",
+  "lang": "it",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f6f5f2",
+  "theme_color": "#1f4e79",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

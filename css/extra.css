@@ -1,0 +1,41 @@
+header{padding-top:max(14px, env(safe-area-inset-top))}
+.hrow{display:flex;justify-content:space-between;align-items:center;gap:10px}
+button.icon{width:44px;height:44px;margin:0;padding:0;font-size:22px;border-radius:50%;background:var(--bg);color:var(--ink);border:1px solid var(--line)}
+#map{height:340px;border-radius:10px;margin-top:10px;border:1px solid var(--line);z-index:0}
+#luogobox .chips{align-items:center}
+#coord{flex:1}
+.leaflet-container{font:inherit}
+.zlabel{background:rgba(255,255,255,.85);border:0;box-shadow:none;font-weight:600;font-size:11px;padding:1px 4px}
+#netstato{font-weight:600}
+#report{display:none}
+@media print{
+  html,body{background:#fff!important}
+  header,main{display:none!important}
+  #report{display:block;color:#000;font:11pt/1.4 Georgia,serif;padding:0}
+  #report h1{font-size:15pt;margin:0 0 2pt}
+  #report h2{font-size:11.5pt;margin:12pt 0 4pt;border-bottom:1px solid #999}
+  #report table{width:100%;border-collapse:collapse;font-size:10pt}
+  #report td,#report th{border-bottom:1px solid #ccc;padding:3pt 4pt;text-align:left}
+  #report td.n{text-align:right;font-weight:bold}
+  #report .intest{border-bottom:2px solid #000;padding-bottom:6pt;margin-bottom:8pt}
+  #report .nota{font-size:9pt;color:#333}
+  #report svg{width:9cm;height:9cm}
+  #report .firma{margin-top:24pt;text-align:right}
+  #report .firma .linea{margin-top:28pt}
+  #report .firmatario{font-size:11.5pt;font-weight:bold}
+  #report img.carta{display:block;width:100%;max-height:3.5cm;object-fit:contain;margin-bottom:6pt}
+  #report .carta-spazio{height:3cm;margin-bottom:6pt}
+  #report h3{font-size:10pt;margin:8pt 0 3pt}
+  #report .legenda{page-break-before:auto;break-inside:avoid}
+  #report td.lz{width:34%;vertical-align:top}
+  #report .sw{display:inline-block;width:9pt;height:9pt;margin-right:5pt;vertical-align:-1pt;border:1px solid #555;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  #report .sw.z1{background:#c0392b}#report .sw.z2{background:#e67e22}#report .sw.z3{background:#f1c40f}
+  #report .schema{break-inside:avoid;text-align:center}
+  #report .schema svg{display:block;margin:6pt auto}
+  #report .schema .nota{text-align:center;max-width:14cm;margin:0 auto}
+  #report table.dati td{border:0;padding:1pt 4pt 1pt 0;font-size:10pt}
+  #report table.dati td:first-child{width:2.6cm;color:#333}
+  #report th{font-size:9pt;color:#333}
+  #report th.n{text-align:right}
+  @page{size:A4;margin:15mm}
+}
