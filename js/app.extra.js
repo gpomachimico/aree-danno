@@ -85,13 +85,24 @@ function disegnaMappa() {
   const rmax = Math.max(iso, ...zone.map(z => z.r), r.ergCaso ? r.ergCaso.dist : 0);
   mappa.fitBounds(L.latLng(posizione).toBounds(rmax * 2.2), { animate: false });
 }
+// la mappa si sposta nel riquadro "Zone" quando ci sono risultati, e torna su quando si cambia merce
+function spostaMappa(dove) {
+  const m = $('map'), dest = dove === 'zone' ? $('mapSlot') : $('mapHome');
+  if (m.parentElement !== dest) { dest.appendChild(m); $('mapNota').classList.toggle('hide', dove !== 'zone'); if (mappa) setTimeout(() => { mappa.invalidateSize(); if (dove === 'zone' && risultati.length) disegnaMappa(); }, 60); }
+}
+$('onu').addEventListener('input', () => spostaMappa('home'));
 // la vista Mappa/Schema
-$('vMap').onclick = () => { $('vMap').classList.add('on'); $('vSch').classList.remove('on'); $('map').classList.remove('hide'); $('graf').classList.add('hide'); if (mappa) setTimeout(() => mappa.invalidateSize(), 50); };
-$('vSch').onclick = () => { $('vSch').classList.add('on'); $('vMap').classList.remove('on'); $('graf').classList.remove('hide'); };
+$('vMap').onclick = () => { $('vMap').classList.add('on'); $('vSch').classList.remove('on'); $('map').classList.remove('hide'); $('graf').classList.add('hide'); if (mappa) setTimeout(() => { mappa.invalidateSize(); disegnaMappa(); }, 50); };
+$('vSch').onclick = () => { $('vSch').classList.add('on'); $('vMap').classList.remove('on'); $('graf').classList.remove('hide'); $('map').classList.add('hide'); };
 
 // aggancio al calcolo: dopo ogni visualizzazione aggiorna la mappa
 const _mostraBase = mostra;
-mostra = function () { _mostraBase(); disegnaMappa(); };
+mostra = function () {
+  _mostraBase();
+  spostaMappa('zone');
+  if ($('vSch').classList.contains('on')) $('map').classList.add('hide');
+  if (mappa) { mappa.invalidateSize(); disegnaMappa(); }
+};
 
 // ---------- report ----------
 // Legenda delle zone (Linee guida PEE, Direttiva 7/12/2022)
