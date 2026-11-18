@@ -54,6 +54,15 @@ for e in dgl:
     if p: v['p']=1
     if nota: v['sn']=nota
     st=STATO_MAN.get(e['un']) or stato(c, v['n'])
+    # imballaggi ammessi dalla DGL: G bombole (P200), L grandi imballaggi (LP), I IBC (col. 10), T cisterne mobili (col. 13 T..), B contenitori per rinfuse (BK)
+    c8=c.get('8',''); c10=c.get('10',''); c13=c.get('13','')
+    im=''
+    if re.search(r'\bP20[03]\b', c8): im+='G'
+    if re.search(r'\bLP\d', c8): im+='L'
+    if re.search(r'\bIBC\d', c10): im+='I'
+    if re.search(r'\bT\d+\b', c13): im+='T'
+    if re.search(r'\bBK\d', c13): im+='B'
+    v['im']=im
     if st: v['st']=st
     em=c.get('15','').strip()
     if em and em!='–': v['e']=em

@@ -26,8 +26,8 @@ $('onu').addEventListener('input', () => {
 });
 function mostraVoce(iv) {
   const d = DATA.db[cur.u], u = cur.u;
-  Object.assign(cur, { psn: d.psn, classe: d.classe, ems: d.ems, pg: d.pg, sub: d.sub, mp: d.mp, sn: d.sn, st: d.varianti ? d.varianti[0].st : '' });
-  if (d.varianti && d.varianti[iv] && (d.automatica || iv > 0)) { const v = d.varianti[iv]; Object.assign(cur, { psn: v.n, classe: v.c, ems: v.e || '–', pg: v.pg, sub: v.s || '', mp: !!v.p, sn: v.sn || '', st: v.st || '' }); }
+  Object.assign(cur, { psn: d.psn, classe: d.classe, ems: d.ems, pg: d.pg, sub: d.sub, mp: d.mp, sn: d.sn, st: d.varianti ? d.varianti[0].st : '', im: d.varianti ? d.varianti[0].im : undefined });
+  if (d.varianti && d.varianti[iv] && (d.automatica || iv > 0)) { const v = d.varianti[iv]; Object.assign(cur, { psn: v.n, classe: v.c, ems: v.e || '–', pg: v.pg, sub: v.s || '', mp: !!v.p, sn: v.sn || '', st: v.st || '', im: v.im }); }
   if (/\(/.test(cur.classe)) cur.sub = '';
   cur.iv = iv;
   const varSel = d.varianti && d.varianti.length > 1 ? `<label for="varSel">Voci della DGL per questo numero (${d.varianti.length})</label><select id="varSel">${d.varianti.map((v, i) => `<option value="${i}" ${i === iv ? 'selected' : ''}>${v.pg !== '–' ? 'GI ' + v.pg + ' – ' : ''}${v.n.slice(0, 80)}${v.e && v.e !== d.varianti[0].e ? ' (' + v.e + ')' : ''}</option>`).join('')}</select>` : '';
@@ -72,9 +72,7 @@ function ergFields() {
     ? `<input type="hidden" id="stato" value="${cur.st === 'l' ? 'liq' : 'sol'}"><p class="small"><b>Stato fisico: ${ST[cur.st]}</b> (dalla voce IMDG: nome di spedizione o istruzioni di imballaggio).</p>`
     : `<label for="stato">Stato fisico</label><select id="stato"><option value="liq" ${solido ? '' : 'selected'}>Liquido</option><option value="sol" ${solido ? 'selected' : ''}>Solido</option></select><p class="small">La voce IMDG non indica lo stato fisico: sceglierlo in base alla merce.</p>`;
   return `${statoHtml}${!gas && liqSol ? '<p class="small">Per questa guida l\'ERG distingue l\'isolamento iniziale tra liquidi e solidi.</p>' : ''}
-    <label>Imballaggio</label><select id="imbe">
-      <option value="collo">Collo / bombola singola</option><option value="fusto">Fusto (fino a 200 L)</option>
-      <option value="ibc" selected>IBC 1000 L</option><option value="cist">Cisterna / tank-container</option><option value="cont">Container con più colli</option><option value="altro">Altro</option></select>
+    <label>Imballaggio</label>${opzioniImb(gas, solido)}
     <div class="row">${f('qta', gas ? 'Capacità del recipiente (L)' : `Quantità coinvolta (<span id="qtaU">${solido ? 'kg' : 'L'}</span>)`, 1000)}<div></div></div>
     ${gas ? '' : `<div id="solBox" class="${solido ? '' : 'hide'}">
       <div class="row">${f('ncolli2', 'Colli coinvolti', 1, 'min="1" step="1"')}${f('rhoapp', 'Densità apparente (kg/L) – facoltativa', '', 'placeholder="non nota"')}</div>
@@ -89,7 +87,8 @@ function bindExtra() {
   if ($('stato')) $('stato').onchange = () => { const s = $('stato').value === 'sol'; if ($('qtaU')) $('qtaU').textContent = s ? 'kg' : 'L'; if ($('solBox')) $('solBox').classList.toggle('hide', !s); };
   if ($('t1sel')) { aggiornaT1sel(); if ($('inAcqua')) $('inAcqua').onchange = aggiornaT1sel; }
   const ie = $('imbe');
-  if (ie) ie.onchange = () => { const v = { collo: 50, fusto: 200, ibc: 1000, cist: 24000, cont: 10000 }[ie.value]; if (v) $('qta').value = v; };
+  const preset = () => { const v = { collo: 50, fusto: 200, lp: 1000, ibc: 1000, bk: 20000, cist: 24000, cont: 10000 }[ie.value]; if (v) $('qta').value = v; };
+  if (ie) { ie.onchange = preset; preset(); }
 }
 function leggiNEM() {
   if ($('nemCol') && $('nemCol').classList.contains('on')) {
@@ -100,14 +99,54 @@ function leggiNEM() {
   const t = num('nem'); if (!t || t <= 0) throw 'Inserire la NEM totale';
   return { nem: t, origine: `NEM totale ${t} kg dal documento di trasporto (IMDG 5.4.1.5.1)` };
 }
-const NOMI_IMB = { collo: 'collo singolo', pallet: 'pallet / più colli', c20: "container 20'", c40: "container 40'", stiva: 'stiva / carico di nave', altro: 'altro', fusto: 'fusto', ibc: 'IBC 1000 L', cist: 'cisterna / tank-container', cont: 'container con più colli' };
+// Imballaggi proposti in base allo stato fisico e a quelli ammessi dalla DGL IMDG per la voce:
+// G bombole (P200/P203), L grandi imballaggi (LP), I IBC (col. 10), T cisterne mobili (col. 13), B contenitori per rinfuse (BK)
+function opzioniImb(gas, solido) {
+  const im = cur.im ?? 'GLITB', ok = k => im.includes(k), o = cur.st === 'o';
+  const op = [];
+  if (gas) {
+    op.push(['collo', 'Bombola singola']);
+    if (ok('T')) op.push(['cist', 'Cisterna / tank-container']);
+    op.push(['cont', 'Container o pacco con più bombole']);
+  } else if (o) {
+    op.push(['collo', 'Collo singolo']);
+    if (ok('L')) op.push(['lp', 'Grande imballaggio']);
+    op.push(['cont', 'Container con più colli']);
+  } else {
+    if (ok('G') && !/P00[12]/.test(cur.pi || '')) op.push(['collo', 'Recipiente a pressione (bombola) singolo']);
+    else {
+      op.push(['collo', solido ? 'Collo singolo (sacco, scatola) fino a 400 kg' : 'Collo singolo (bottiglia, latta, tanica)']);
+      op.push(['fusto', solido ? 'Fusto' : 'Fusto (fino a 200 L)']);
+    }
+    if (ok('L')) op.push(['lp', 'Grande imballaggio']);
+    if (ok('I')) op.push(['ibc', solido ? 'IBC (big bag, contenitore rigido)' : 'IBC 1000 L']);
+    if (ok('B')) op.push(['bk', 'Contenitore per rinfuse (BK)']);
+    if (ok('T')) op.push(['cist', solido ? 'Cisterna mobile (solidi)' : 'Cisterna / tank-container']);
+    op.push(['cont', 'Container con più colli']);
+  }
+  op.push(['altro', 'Altro']);
+  const def = gas ? 'collo' : ['ibc', 'fusto', 'collo'].find(k => op.some(x => x[0] === k));
+  const esclusi = gas ? (ok('T') ? '' : 'cisterne') : o ? '' : [!ok('I') && 'IBC', !ok('T') && 'cisterne mobili', !ok('L') && 'grandi imballaggi'].filter(Boolean).join(', ');
+  return `<select id="imbe">${op.map(([v, t]) => `<option value="${v}" ${v === def ? 'selected' : ''}>${t}</option>`).join('')}</select>` +
+    `<p class="small">Imballaggi proposti in base a quelli ammessi dalla DGL IMDG per questa voce (colonne 8, 10 e 13)${esclusi ? ': non ammessi ' + esclusi : ''}.</p>`;
+}
+// imballaggi per i modelli di calcolo dei liquidi (pool fire, dispersione)
+function opzioniImbLiquidi() {
+  const im = cur.im ?? 'IT', op = [['200', 'Fusto 200 L']];
+  if (im.includes('I')) op.push(['1000', 'IBC 1000 L']);
+  if (im.includes('T')) op.push(['24000', 'Cisterna / tank-container 24 000 L']);
+  op.push(['0', 'Altro (inserisci volume)']);
+  const def = op.find(x => x[0] === '1000') ? '1000' : '200';
+  return { html: `<select id="imb">${op.map(([v, t]) => `<option value="${v}" ${v === def ? 'selected' : ''}>${t}</option>`).join('')}</select>`, vol: +def };
+}
+const NOMI_IMB = { lp: 'grande imballaggio', bk: 'contenitore per rinfuse (BK)', collo: 'collo singolo', pallet: 'pallet / più colli', c20: "container 20'", c40: "container 40'", stiva: 'stiva / carico di nave', altro: 'altro', fusto: 'fusto', ibc: 'IBC', cist: 'cisterna / tank-container', cont: 'container con più colli' };
 
 function buildFields() {
   const m = cur.modello, p = DATA.props[cur.u] || {};
   let h = '';
   if (m === 'PF') {
-    h = `<label>Imballaggio</label><select id="imb"><option value="200">Fusto 200 L</option><option value="1000" selected>IBC 1000 L</option><option value="24000">Cisterna / tank-container 24 000 L</option><option value="0">Altro (inserisci volume)</option></select>
-      <div class="row">${f('vol', 'Volume rilasciato (L)', 1000)}${f('area', 'Area bacino (m²) – vuoto = non confinato', '', 'placeholder="non confinato"')}</div>
+    h = `<label>Imballaggio</label>${opzioniImbLiquidi().html}
+      <div class="row">${f('vol', 'Volume rilasciato (L)', opzioniImbLiquidi().vol)}${f('area', 'Area bacino (m²) – vuoto = non confinato', '', 'placeholder="non confinato"')}</div>
       <p class="small">Sostanza di calcolo: ${p.nome}</p>`;
   } else if (m === 'BL') {
     const rho = p.rho_liq || 0.5, mk = V => Math.round(V * rho * 0.8 / 100) * 100;
@@ -115,13 +154,13 @@ function buildFields() {
       <div class="row">${f('massa', `Massa di ${p.nome.split(' (')[0]} (kg)`, mk(22000))}${f('pmpa', 'Pressione al cedimento (MPa)', 1.7)}</div>
       <p class="small">Sostanza di calcolo: ${p.nome}. Masse proposte: volume × densità del liquido ${String(rho).replace('.', ',')} kg/L × riempimento 80%.${p.fonte ? ' Dati: ' + p.fonte + '.' : ''}</p>`;
   } else if (m === 'GA' && typeof p.pv === 'number') {
-    h = `<label>Imballaggio</label><select id="imb"><option value="200">Fusto 200 L</option><option value="1000" selected>IBC 1000 L</option><option value="24000">Cisterna / tank-container 24 000 L</option><option value="0">Altro (inserisci volume)</option></select>
-      <div class="row">${f('vol', 'Volume rilasciato (L)', 1000)}${f('area', 'Area bacino (m²)', '', 'placeholder="non confinato"')}</div>
+    h = `<label>Imballaggio</label>${opzioniImbLiquidi().html}
+      <div class="row">${f('vol', 'Volume rilasciato (L)', opzioniImbLiquidi().vol)}${f('area', 'Area bacino (m²)', '', 'placeholder="non confinato"')}</div>
       <div class="row">${f('pv', `Tensione di vapore (kPa) – vuoto = ${String(p.pv).replace('.', ',')} kPa`, '', 'placeholder="da banca dati"')}<div></div></div>
       <p class="small">Sostanza di calcolo: ${p.nome}. Soglie: LC50 ${p.LC50} ppm (ratto, ${p.LC50_t}) · IDLH ${p.IDLH} ppm · LOC ${p.LOC} ppm</p>`;
   } else if (m === 'GA') {
-    h = `<label>Imballaggio</label><select id="imb"><option value="200">Fusto 200 L</option><option value="1000" selected>IBC 1000 L</option><option value="24000">Cisterna / tank-container 24 000 L</option><option value="0">Altro (inserisci volume)</option></select>
-      <div class="row">${f('vol', 'Volume rilasciato (L)', 1000)}${f('conc', 'Concentrazione HCl (%)', 33, 'min="30" max="38"')}</div>
+    h = `<label>Imballaggio</label>${opzioniImbLiquidi().html}
+      <div class="row">${f('vol', 'Volume rilasciato (L)', opzioniImbLiquidi().vol)}${f('conc', 'Concentrazione HCl (%)', 33, 'min="30" max="38"')}</div>
       <div class="row">${f('pv', 'Tensione di vapore (kPa) – vuoto = da tabella', '', 'placeholder="da tabella"')}${f('area', 'Area bacino (m²)', '', 'placeholder="non confinato"')}</div>
       <p class="small">Soglie: LC50 30 min ${p.LC50} ppm · IDLH ${p.IDLH} ppm · LOC ${p.LOC} ppm</p>`;
   } else if (cur.classe.startsWith('1.')) {
@@ -257,7 +296,7 @@ function tipoSpandimento(imbe, q) {
   if (singolo && n === 1) return { grande: true, motivo: `${SL}: ${q} kg in un solo imballaggio, oltre i 400 kg di un collo: grande spandimento` + CRIT };
   if (singolo) return { grande: true, motivo: `${SL}: ${n} colli coinvolti: grande spandimento (molti colli piccoli)` + CRIT };
   if (imbe === 'cont') return { grande: true, motivo: SL + ': container con più colli: grande spandimento (molti colli)' + CRIT };
-  return { grande: true, motivo: `${SL}: ${{ ibc: 'IBC', cist: 'cisterna / tank-container', cont: 'container con più colli', altro: 'imballaggio oltre 400 kg' }[imbe] || imbe}: grande spandimento (grande imballaggio)` + CRIT };
+  return { grande: true, motivo: `${SL}: ${{ lp: 'grande imballaggio', bk: 'contenitore per rinfuse', ibc: 'IBC', cist: 'cisterna / tank-container', cont: 'container con più colli', altro: 'imballaggio oltre 400 kg' }[imbe] || imbe}: grande spandimento (grande imballaggio)` + CRIT };
 }
 const notaSolidi = () => '';
 function isoNumero(g) { return typeof g.isolamento_m === 'number' ? g.isolamento_m : (statoSolido() ? 25 : 50); }
