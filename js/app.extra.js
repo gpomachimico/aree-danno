@@ -1,6 +1,6 @@
 /* Estensioni dell'app installabile: mappa, GPS, impostazioni, report stampabile, offline */
 'use strict';
-const VERSIONE = '1.0-beta';
+const VERSIONE = '1.1-beta';
 
 // ---------- impostazioni (solo su questo dispositivo) ----------
 const FIRMATARIO_DEFAULT = { nome: 'Dott. Gianluca POMA', qualifica: 'Consulente Chimico di Porto' };
@@ -73,7 +73,7 @@ function cerchiDaRisultato(r, g) {
     if (r.ergCaso.prot_km) c.push({ r: r.ergCaso.prot_km * 1000, col: '#f1c40f', nome: `Protezione sottovento (${r.ergCaso.per}, disegnata come cerchio)` });
     c.push({ r: r.ergCaso.dist, col: '#e67e22', nome: 'ERG: ' + r.ergCaso.etichetta });
   }
-  const iso = typeof g.isolamento_m === 'number' ? g.isolamento_m : 50;
+  const iso = isoNumero(g);
   return { zone: c, iso };
 }
 function disegnaMappa() {
@@ -188,7 +188,7 @@ $('print').onclick = () => {
       <p class="nota">"Non raggiunta": la soglia non è superata nemmeno in prossimità della sorgente.</p>`;
   }
   if (r.ergCaso) h += `<h2>Distanza ERG da applicare</h2><p>${r.ergCaso.dist} m${r.ergCaso.dir ? ' ' + esc(r.ergCaso.dir) : ''} – ${esc(r.ergCaso.etichetta)}. ${esc(r.ergCaso.motivo)}</p>`;
-  h += `<div class="schema"><h2>Schema delle zone</h2>${$('graf').innerHTML}<div class="nota">Cerchi colorati: ${r.soloERG ? 'distanza ERG da applicare' : 'Zona I (rosso), Zona II (arancio), Zona III (giallo)'}. Tratteggio: isolamento iniziale ERG. Barra: scala grafica.${r.meteo ? ' Per la dispersione tossica le distanze sono sottovento e sono rappresentate come cerchi (inviluppo cautelativo per direzione del vento incerta).' : ''}</div></div>`;
+  h += `<div class="schema"><h2>Schema delle zone</h2>${$('graf').innerHTML}<div class="nota"> Cerchi colorati: ${r.soloERG ? (r.ergCaso && r.ergCaso.prot_km ? `isolamento ${r.ergCaso.dist} m (arancio) e protezione sottovento ${r.ergCaso.prot_km} km (giallo, rappresentata come cerchio: inviluppo cautelativo per direzione del vento incerta)` : 'distanza ERG da applicare') : 'Zona I (rosso), Zona II (arancio), Zona III (giallo)'}. Tratteggio: isolamento iniziale ERG. Barra: scala grafica.${r.meteo ? ' Per la dispersione tossica le distanze sono sottovento e sono rappresentate come cerchi (inviluppo cautelativo per direzione del vento incerta).' : ''}</div></div>`;
   h += `<h2>Ipotesi di calcolo</h2><ul>${r.ipotesi.map(x => `<li>${esc(x)}</li>`).join('')}${r.meteo ? `<li>Meteo ${r.meteo.origine}: ${r.meteo.stabilita}, ${r.meteo.vento_ms} m/s, ${r.meteo.temperatura_C} °C</li>` : ''}</ul>`;
   if (r.avvisi && r.avvisi.length) h += `<h2>Avvisi</h2><ul>${r.avvisi.map(x => `<li>${esc(x)}</li>`).join('')}</ul>`;
   h += `<h2>ERG 2024 – Guida ${esc(cur.guida)}</h2><p class="nota">${esc(g.titolo_it || g.titolo)}</p><table>${ergRighe(g, cur.guida).map(([a, b]) => `<tr><td>${esc(a)}</td><td>${esc(b)}</td></tr>`).join('')}</table>`;

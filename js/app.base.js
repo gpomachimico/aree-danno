@@ -26,7 +26,9 @@ $('onu').addEventListener('input', () => {
 });
 function mostraVoce(iv) {
   const d = DATA.db[cur.u], u = cur.u;
-  if (d.varianti && d.varianti[iv] && (d.automatica || iv > 0)) { const v = d.varianti[iv]; Object.assign(cur, { psn: v.n, classe: v.c, ems: v.e || '–', pg: v.pg, sub: v.s || '', mp: !!v.p, sn: v.sn || '' }); }
+  Object.assign(cur, { psn: d.psn, classe: d.classe, ems: d.ems, pg: d.pg, sub: d.sub, mp: d.mp, sn: d.sn, st: d.varianti ? d.varianti[0].st : '' });
+  if (d.varianti && d.varianti[iv] && (d.automatica || iv > 0)) { const v = d.varianti[iv]; Object.assign(cur, { psn: v.n, classe: v.c, ems: v.e || '–', pg: v.pg, sub: v.s || '', mp: !!v.p, sn: v.sn || '', st: v.st || '' }); }
+  if (/\(/.test(cur.classe)) cur.sub = '';
   cur.iv = iv;
   const varSel = d.varianti && d.varianti.length > 1 ? `<label for="varSel">Voci della DGL per questo numero (${d.varianti.length})</label><select id="varSel">${d.varianti.map((v, i) => `<option value="${i}" ${i === iv ? 'selected' : ''}>${v.pg !== '–' ? 'GI ' + v.pg + ' – ' : ''}${v.n.slice(0, 80)}${v.e && v.e !== d.varianti[0].e ? ' (' + v.e + ')' : ''}</option>`).join('')}</select>` : '';
   const g = DATA.guide[cur.guida];
@@ -58,17 +60,20 @@ function explFields(conCalcolo, p) {
     <p class="small">L'ERG non lega le distanze per gli esplosivi alla massa netta: la scelta tra misura immediata, "Large Spill" e incendio dipende dalla situazione valutata sul posto.</p>`;
 }
 function ergFields() {
-  const solido = /SOLID|ASBESTOS/.test(cur.psn);
-  return `<label>Imballaggio</label><select id="imbe">
+  const solido = cur.st ? cur.st === 's' : SOLIDO_RE.test(cur.psn), gas = cur.classe.startsWith('2');
+  const g = DATA.guide[cur.guida], liqSol = typeof g.isolamento_m === 'string';
+  return `${!gas ? `<label for="stato">Stato fisico</label><select id="stato"><option value="liq" ${solido ? '' : 'selected'}>Liquido</option><option value="sol" ${solido ? 'selected' : ''}>Solido</option></select><p class="small">Proposto ${cur.st ? 'dalle istruzioni di imballaggio IMDG (colonne 8 e 10)' : 'dal nome'}: modificabile.</p>${liqSol ? '<p class="small">Per questa guida l\'ERG distingue l\'isolamento iniziale tra liquidi e solidi.</p>' : ''}` : ''}
+    <label>Imballaggio</label><select id="imbe">
       <option value="collo">Collo / bombola singola</option><option value="fusto">Fusto (fino a 200 L)</option>
       <option value="ibc" selected>IBC 1000 L</option><option value="cist">Cisterna / tank-container</option><option value="cont">Container con più colli</option><option value="altro">Altro</option></select>
-    <div class="row">${f('qta', `Quantità coinvolta (${solido ? 'kg' : 'L'})`, 1000)}<div></div></div>
+    <div class="row">${f('qta', gas ? 'Capacità del recipiente (L)' : `Quantità coinvolta (<span id="qtaU">${solido ? 'kg' : 'L'}</span>)`, 1000)}<div></div></div>
     ${chk('fuoco', 'Incendio in atto o probabile')}${cur.tih ? campiTIH() : ''}`;
 }
 function bindExtra() {
   const a = $('nemTot'), b = $('nemCol');
   if (a) { a.onclick = () => { a.classList.add('on'); b.classList.remove('on'); $('boxTot').classList.remove('hide'); $('boxCol').classList.add('hide'); };
            b.onclick = () => { b.classList.add('on'); a.classList.remove('on'); $('boxCol').classList.remove('hide'); $('boxTot').classList.add('hide'); }; }
+  if ($('stato')) $('stato').onchange = () => { if ($('qtaU')) $('qtaU').textContent = $('stato').value === 'sol' ? 'kg' : 'L'; };
   if ($('t1sel')) { aggiornaT1sel(); if ($('inAcqua')) $('inAcqua').onchange = aggiornaT1sel; }
   const ie = $('imbe');
   if (ie) ie.onchange = () => { const v = { collo: 50, fusto: 200, ibc: 1000, cist: 24000, cont: 10000 }[ie.value]; if (v) $('qta').value = v; };
@@ -159,7 +164,7 @@ $('calc').onclick = () => {
         const imbe = $('imbe').value;
         caso = casoERGgenerico(imbe, q);
         const NOTE_UN = { '1791': 'Attenzione: a contatto con acidi l\'ipoclorito sviluppa cloro; scenario di dispersione del cloro non calcolato (versione successiva)' };
-        ipo = [...(NOTE_UN[cur.u] ? [NOTE_UN[cur.u]] : []), `Quantità coinvolta: ${q} ${/SOLID|ASBESTOS/.test(cur.psn) ? 'kg' : 'L'}; imballaggio: ${NOMI_IMB[imbe]}`, caso.motivo, `Nessun modello di calcolo per questa voce nella prima versione: distanze ERG 2024 Guida ${cur.guida}`];
+        ipo = [...(NOTE_UN[cur.u] ? [NOTE_UN[cur.u]] : []), `${cur.classe.startsWith('2') ? 'Capacità del recipiente' : 'Quantità coinvolta'}: ${q} ${unitaQ()}${$('stato') ? ' (' + ($('stato').value === 'sol' ? 'solido' : 'liquido') + ')' : ''}; imballaggio: ${NOMI_IMB[imbe]}`, caso.motivo, `Nessun modello di calcolo per questa voce nella prima versione: distanze ERG 2024 Guida ${cur.guida}`];
       }
       const avvisiE = [];
       if (cur.classe.startsWith('1.')) {
@@ -187,17 +192,23 @@ function casoERGesplosivi(imbx) {
 function casoERGgenerico(imbe, q) {
   const g = DATA.guide[cur.guida], fuoco = $('fuoco') && $('fuoco').checked;
   if (cur.tih && !(fuoco && g.incendio_m && imbe !== 'collo' && imbe !== 'fusto')) { const c = casoTIH(imbe, q); if (c) return c; }
-  const isoNum = typeof g.isolamento_m === 'number' ? g.isolamento_m : (/SOLID|ASBESTOS/.test(cur.psn) ? 25 : 50);
+  const isoNum = isoNumero(g);
   if (fuoco && g.incendio_m && imbe !== 'collo' && imbe !== 'fusto')
     return { chiave: 'incendio', dist: g.incendio_m, etichetta: 'Incendio (cisterna o carico)', motivo: 'Incendio con cisterna, IBC o carico coinvolti: distanza ERG per incendio' };
   const grande = q > 208 && imbe !== 'collo';
   if (grande && g.evac_grande_m)
-    return { chiave: 'grande', dist: g.evac_grande_m, dir: g.evac_grande_dir, etichetta: 'Grande spandimento', motivo: `Quantità > 208 L: grande spandimento secondo la definizione ERG` };
-  return { chiave: 'iso', dist: isoNum, etichetta: 'Isolamento iniziale', motivo: grande ? 'Grande spandimento: per questa guida l\'ERG indica di aumentare la distanza sottovento se necessario' : 'Quantità ≤ 208 L o collo singolo: piccolo spandimento' + (fuoco ? ' (incendio di collo singolo: valutare caso per caso)' : '') };
+    return { chiave: 'grande', dist: g.evac_grande_m, dir: g.evac_grande_dir, etichetta: 'Grande spandimento', motivo: `Quantità > 208 ${unitaQ()}: grande spandimento secondo la definizione ERG${notaSolidi()}` };
+  return { chiave: 'iso', dist: isoNum, etichetta: 'Isolamento iniziale', motivo: grande ? 'Grande spandimento: per questa guida l\'ERG indica di aumentare la distanza sottovento se necessario' : `Quantità ≤ 208 ${unitaQ()} o collo singolo: piccolo spandimento${notaSolidi()}` + (fuoco ? ' (incendio di collo singolo: valutare caso per caso)' : '') };
 }
 
 function alertBox(t) { $('idbox').insertAdjacentHTML('beforeend', `<div class="warn">${t}</div>`); }
 
+// stato fisico: scelto dall'utente; valore iniziale dal nome IMDG
+const SOLIDO_RE = /SOLID|ASBESTOS|POWDER|GRANUL|FLAKES|PELLET|CHIPS|DUST/;
+function statoSolido() { const e = $('stato'); return e ? e.value === 'sol' : (cur.st ? cur.st === 's' : SOLIDO_RE.test(cur.psn)); }
+const unitaQ = () => statoSolido() ? 'kg' : 'L';
+const notaSolidi = () => statoSolido() ? ' (l\'ERG fissa la soglia di 208 L in volume; per i solidi l\'app confronta i kg con 208)' : '';
+function isoNumero(g) { return typeof g.isolamento_m === 'number' ? g.isolamento_m : (statoSolido() ? 25 : 50); }
 const isoTxt = g => typeof g.isolamento_m === 'number' ? g.isolamento_m + ' m' : String(g.isolamento_m).replace(/(\d+) liquidi/, '$1 m liquidi').replace(/(\d+) solidi/, '$1 m solidi');
 const fmt = v => v === null ? 'non raggiunta' : !Number.isFinite(v) ? '> 50 km' : v + ' m';
 
@@ -279,7 +290,7 @@ function disegna(r, g) {
     if (Number.isFinite(r.zone_m.II) && r.zone_m.II) cer.push([r.zone_m.II, 'var(--z2)', 'II']);
     if (Number.isFinite(r.zone_m.I) && r.zone_m.I) cer.push([r.zone_m.I, 'var(--z1)', 'I']);
   }
-  const iso = typeof g.isolamento_m === 'number' ? g.isolamento_m : 50;
+  const iso = isoNumero(g);
   if (r.soloERG && r.ergCaso && r.ergCaso.prot_km) cer.push([r.ergCaso.prot_km * 1000, 'var(--z3)', 'PROT']);
   if (r.soloERG && r.ergCaso && r.ergCaso.dist !== iso) cer.push([r.ergCaso.dist, 'var(--z2)', 'ERG']);
   const ergApp = !r.soloERG && r.ergCaso ? r.ergCaso.dist : 0;

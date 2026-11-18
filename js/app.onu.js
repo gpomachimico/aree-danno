@@ -34,7 +34,7 @@
 
 const norm = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
 const INDICE = Object.entries(ONU.onu).flatMap(([u, o]) => [...new Set(o.v.map(v => v.n))].map(n => [u, n, norm(n)]))
-  .concat(Object.entries(ONU.t1).flatMap(([u, l]) => l.map(x => [u, x.n + ' (ERG)', norm(x.n)])));
+  .concat(Object.entries(ONU.t1).filter(([u]) => DATA.db[u]).flatMap(([u, l]) => l.map(x => [u, x.n + ' (ERG)', norm(x.n)])));
 
 function cercaVoci(q) {
   q = norm(q.trim());
@@ -69,11 +69,12 @@ function vociT1(u, inAcqua) {
 
 function campiTIH() {
   const u = cur.u, haAcqua = (ONU.t1[u] || []).some(x => /when spilled in water/.test(x.n)) || cur.t2;
-  const ora = new Date().getHours(), giorno = ora >= 7 && ora < 19;
+  const ev = $('evData') && $('evData').value ? new Date($('evData').value) : new Date();
+  const ora = ev.getHours(), giorno = ora >= 7 && ora < 19;
   let h = `<div class="warn">Voce TIH (tossica per inalazione) evidenziata nell'ERG: per lo spandimento valgono le distanze della Tabella 1.</div>`;
   if (haAcqua) h += `<label style="display:flex;gap:10px;align-items:center;font-size:15px;color:var(--ink);margin-top:12px"><input id="inAcqua" type="checkbox" style="width:22px;height:22px;flex:none"> Rilascio in acqua (mare, bacino)</label>`;
   h += `<div id="t1sel"></div>
-    <label for="periodo">Periodo</label><select id="periodo"><option value="giorno" ${giorno ? 'selected' : ''}>Giorno (tra alba e tramonto)</option><option value="notte" ${giorno ? '' : 'selected'}>Notte</option></select>`;
+    <label for="periodo">Periodo</label><select id="periodo"><option value="giorno" ${giorno ? 'selected' : ''}>Giorno (tra alba e tramonto)</option><option value="notte" ${giorno ? '' : 'selected'}>Notte</option></select><p class="small">Proposto dall'ora dell'evento (giorno 7–19): verificare alba e tramonto.</p>`;
   if (cur.t3) {
     const righe = ONU.t3[u].righe;
     h += `<div id="t3box"><label for="t3cont">Contenitore (Tabella 3, grandi spandimenti)</label><select id="t3cont">${righe.map((r, i) => `<option value="${i}">${TRAD_CONT[r.contenitore] || r.contenitore}</option>`).join('')}</select>
@@ -83,11 +84,18 @@ function campiTIH() {
 }
 const TRAD_CONT = { 'Rail tank car': 'Carro cisterna ferroviario', 'Highway tank truck or trailer': 'Autocisterna o rimorchio cisterna', 'Agricultural nurse tank': 'Serbatoio agricolo', 'Multiple small cylinders': 'Più bombole piccole', 'Multiple ton cylinders': 'Più bombole da una tonnellata', 'Multiple small cylinders or single ton cylinder': 'Più bombole piccole o una bombola da una tonnellata' };
 
+// etichetta breve per la scelta della voce: zona di pericolo per inalazione se presente
+function etichettaT1(v) {
+  const z = [...new Set(v.nomi.map(n => (n.match(/Hazard\s*Zone\s*([A-D])/) || [])[1]).filter(Boolean))];
+  const senza = v.nomi.some(n => !/Hazard\s*Zone/.test(n));
+  if (z.length) return 'Zona ' + z.join('/') + (senza ? ' (anche zona non indicata)' : '') + ' – ' + v.nomi[0].replace(/\s*\(Inhalation Hazard Zone [A-D]\)/, '');
+  return v.nomi[0] + (v.nomi.length > 1 ? ' (e sinonimi)' : '');
+}
 function aggiornaT1sel() {
   const box = $('t1sel'); if (!box) return;
   const { voci, soloAcqua } = vociT1(cur.u, $('inAcqua') && $('inAcqua').checked);
   if (soloAcqua) { box.innerHTML = `<p class="small">Questa voce è in Tabella 1 solo per il rilascio in acqua: per il rilascio a terra valgono le distanze della guida ERG (nota 2 della Tabella 2).</p>`; return; }
-  box.innerHTML = voci.length > 1 ? `<label for="t1voce">Voce della Tabella 1</label><select id="t1voce">${voci.map((v, i) => `<option value="${i}">${v.nomi[0]}${v.nomi.length > 1 ? ' (e sinonimi)' : ''}</option>`).join('')}</select>` : `<p class="small">Tabella 1: ${voci[0].nomi.join(' / ')}</p>`;
+  box.innerHTML = voci.length > 1 ? `<label for="t1voce">Voce della Tabella 1</label><select id="t1voce">${voci.map((v, i) => `<option value="${i}">${etichettaT1(v)}</option>`).join('')}</select>` : `<p class="small">Tabella 1: ${voci[0].nomi.length > 3 ? voci[0].nomi[0] + ` e altre ${voci[0].nomi.length - 1} voci (sinonimi e zone) con gli stessi valori` : voci[0].nomi.join(' / ')}</p>`;
 }
 
 // Caso ERG per le voci TIH: Tabella 1 (e Tabella 3 per i grandi spandimenti dei sei gas)

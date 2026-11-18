@@ -32,6 +32,10 @@ def sub(s):
     if m: nota='vedi '+m.group(1).replace(' ','')
     toks=[x for x in re.split(r'[\s/]+',re.sub(r'See (SP\s?\d+|2\.0\.6\.6)','',s)) if re.fullmatch(r'\d(\.\d)?',x)]
     return '/'.join(toks),p,nota
+def stato(c):
+    t=' '.join([c.get('8',''),c.get('10','')])
+    L=re.search(r'\bP001\b|\bP50[0-9]\b|\bIBC0[123]\b|\bP40[12]\b',t); S=re.search(r'\bP002\b|\bIBC0[4-8]\b|\bP41[01]\b',t)
+    return 'l' if L and not S else 's' if S and not L else ''
 onu={}
 for e in dgl:
     c=e['c']; s,p,nota=sub(c.get('4'))
@@ -39,6 +43,8 @@ for e in dgl:
     if s: v['s']=s
     if p: v['p']=1
     if nota: v['sn']=nota
+    st=stato(c)
+    if st: v['st']=st
     em=c.get('15','').strip()
     if em and em!='–': v['e']=em
     onu.setdefault(e['un'],{'v':[]})['v'].append(v)
