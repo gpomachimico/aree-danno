@@ -32,9 +32,19 @@ def sub(s):
     if m: nota='vedi '+m.group(1).replace(' ','')
     toks=[x for x in re.split(r'[\s/]+',re.sub(r'See (SP\s?\d+|2\.0\.6\.6)','',s)) if re.fullmatch(r'\d(\.\d)?',x)]
     return '/'.join(toks),p,nota
-def stato(c):
+# stato fisico noto a 20 °C per voci senza indicazione nel nome o nelle istruzioni di imballaggio
+STATO_MAN={'1051':'l','1614':'l','1052':'l','1745':'l','1746':'l','2495':'l','1790':'l','1798':'l','1836':'l','2444':'l','2249':'l','3064':'l','3255':'l','2809':'l',
+           '1512':'s','1910':'s','2956':'s','3242':'s','3251':'s','3360':'s','2803':'s','1378':'s'}
+def stato(c, nome=''):
+    # 1) nome di spedizione esplicito; 2) istruzioni di imballaggio IMDG (colonne 8 e 10)
+    if re.search(r'\bSOLID\b', nome) and not re.search(r'\bLIQUID\b', nome): return 's'
+    if re.search(r'\bLIQUID\b', nome) and not re.search(r'\bSOLID\b', nome): return 'l'
+    if re.search(r'\bMOLTEN\b', nome): return 'l'
+    if re.search(r'\b(BATTERIES|BATTERY|AMMUNITION|ARTICLES?|CANDLES|BOMBS|GRENADES|DEVICES?|VEHICLES?|EQUIPMENT|MATCHES|LIGHTERS|CARTRIDGES)\b', nome): return 'o'
     t=' '.join([c.get('8',''),c.get('10','')])
-    L=re.search(r'\bP001\b|\bP50[0-9]\b|\bIBC0[123]\b|\bP40[12]\b',t); S=re.search(r'\bP002\b|\bIBC0[4-8]\b|\bP41[01]\b',t)
+    if re.search(r'\bP010\b|\bP804\b', t): return 'l'
+    L=re.search(r'\bP00[1]\b|\bP40[012]\b|\bP50[124]\b|\bP60[12]\b|\bIBC0[123]\b',t)
+    S=re.search(r'\bP002\b|\bP40[3-7]\b|\bP41[01]\b|\bP503\b|\bIBC0[4-8]\b',t)
     return 'l' if L and not S else 's' if S and not L else ''
 onu={}
 for e in dgl:
@@ -43,7 +53,7 @@ for e in dgl:
     if s: v['s']=s
     if p: v['p']=1
     if nota: v['sn']=nota
-    st=stato(c)
+    st=STATO_MAN.get(e['un']) or stato(c, v['n'])
     if st: v['st']=st
     em=c.get('15','').strip()
     if em and em!='–': v['e']=em

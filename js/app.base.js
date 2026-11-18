@@ -65,9 +65,13 @@ function explFields(conCalcolo, p) {
     <p class="small">L'ERG non lega le distanze per gli esplosivi alla massa netta: la scelta tra misura immediata, "Large Spill" e incendio dipende dalla situazione valutata sul posto.</p>`;
 }
 function ergFields() {
-  const solido = cur.st ? cur.st === 's' : SOLIDO_RE.test(cur.psn), gas = cur.classe.startsWith('2');
+  const solido = cur.st ? cur.st !== 'l' : SOLIDO_RE.test(cur.psn), gas = cur.classe.startsWith('2');
   const g = DATA.guide[cur.guida], liqSol = typeof g.isolamento_m === 'string';
-  return `${!gas ? `<label for="stato">Stato fisico</label><select id="stato"><option value="liq" ${solido ? '' : 'selected'}>Liquido</option><option value="sol" ${solido ? 'selected' : ''}>Solido</option></select><p class="small">Proposto ${cur.st ? 'dalle istruzioni di imballaggio IMDG (colonne 8 e 10)' : 'dal nome'}: modificabile.</p>${liqSol ? '<p class="small">Per questa guida l\'ERG distingue l\'isolamento iniziale tra liquidi e solidi.</p>' : ''}` : ''}
+  const ST = { l: 'liquido', s: 'solido', o: 'oggetto/articolo (quantità in kg)' };
+  const statoHtml = gas ? '' : cur.st
+    ? `<input type="hidden" id="stato" value="${cur.st === 'l' ? 'liq' : 'sol'}"><p class="small"><b>Stato fisico: ${ST[cur.st]}</b> (dalla voce IMDG: nome di spedizione o istruzioni di imballaggio).</p>`
+    : `<label for="stato">Stato fisico</label><select id="stato"><option value="liq" ${solido ? '' : 'selected'}>Liquido</option><option value="sol" ${solido ? 'selected' : ''}>Solido</option></select><p class="small">La voce IMDG non indica lo stato fisico: sceglierlo in base alla merce.</p>`;
+  return `${statoHtml}${!gas && liqSol ? '<p class="small">Per questa guida l\'ERG distingue l\'isolamento iniziale tra liquidi e solidi.</p>' : ''}
     <label>Imballaggio</label><select id="imbe">
       <option value="collo">Collo / bombola singola</option><option value="fusto">Fusto (fino a 200 L)</option>
       <option value="ibc" selected>IBC 1000 L</option><option value="cist">Cisterna / tank-container</option><option value="cont">Container con più colli</option><option value="altro">Altro</option></select>
@@ -230,7 +234,7 @@ function alertBox(t) { $('idbox').insertAdjacentHTML('beforeend', `<div class="w
 
 // stato fisico: scelto dall'utente; valore iniziale dal nome IMDG
 const SOLIDO_RE = /SOLID|ASBESTOS|POWDER|GRANUL|FLAKES|PELLET|CHIPS|DUST/;
-function statoSolido() { const e = $('stato'); return e ? e.value === 'sol' : (cur.st ? cur.st === 's' : SOLIDO_RE.test(cur.psn)); }
+function statoSolido() { const e = $('stato'); return e ? e.value === 'sol' : (cur.st ? cur.st !== 'l' : SOLIDO_RE.test(cur.psn)); }
 const unitaQ = () => statoSolido() ? 'kg' : 'L';
 // Piccolo o grande spandimento. Liquidi e gas: soglia ERG 208 L. Solidi (criterio approvato da Luca 18/11/2026):
 // con densità apparente -> volume confrontato con 208 L; senza -> criterio per imballaggio (ERG + IMDG 1.2.1 e 6.1.4)
@@ -239,20 +243,20 @@ function tipoSpandimento(imbe, q) {
     const grande = q > 208 && imbe !== 'collo';
     return { grande, motivo: grande ? 'Quantità > 208 L: grande spandimento (definizione ERG)' : 'Quantità ≤ 208 L o collo singolo: piccolo spandimento (definizione ERG)' };
   }
-  const rho = num('rhoapp');
+  const rho = num('rhoapp'), SL = cur.st === 'o' ? 'Oggetti' : 'Solido';
   if (rho && rho > 0) {
     const V = q / rho, grande = V > 208;
-    return { grande, motivo: `Solido: ${q} kg con densità apparente ${rho} kg/L = ${V.toFixed(0)} L ${grande ? '>' : '≤'} 208 L: ${grande ? 'grande' : 'piccolo'} spandimento (soglia ERG in volume)` };
+    return { grande, motivo: `${SL}: ${q} kg con densità apparente ${rho} kg/L = ${V.toFixed(0)} L ${grande ? '>' : '≤'} 208 L: ${grande ? 'grande' : 'piccolo'} spandimento (soglia ERG in volume)` };
   }
   const n = Math.max(1, Math.round(num('ncolli2') || 1)), pp = $('piccolaPerdita') && $('piccolaPerdita').checked;
   const CRIT = ' (criterio per imballaggio per i solidi: ERG, descrizione di piccolo e grande spandimento; IMDG 42-24 6.1.4, massa netta massima del collo 400 kg, e 1.2.1, grandi imballaggi oltre 400 kg o 450 L)';
   const singolo = imbe === 'collo' || imbe === 'fusto' || (imbe === 'altro' && q <= 400);
-  if (pp && !singolo) return { grande: false, motivo: 'Solido: piccola perdita da un grande imballaggio: piccolo spandimento' + CRIT };
-  if (singolo && n === 1 && q <= 400) return { grande: false, motivo: `Solido: un solo collo (${q} kg ≤ 400 kg): piccolo spandimento` + CRIT };
-  if (singolo && n === 1) return { grande: true, motivo: `Solido: ${q} kg in un solo imballaggio, oltre i 400 kg di un collo: grande spandimento` + CRIT };
-  if (singolo) return { grande: true, motivo: `Solido: ${n} colli coinvolti: grande spandimento (molti colli piccoli)` + CRIT };
-  if (imbe === 'cont') return { grande: true, motivo: 'Solido: container con più colli: grande spandimento (molti colli)' + CRIT };
-  return { grande: true, motivo: `Solido: ${{ ibc: 'IBC', cist: 'cisterna / tank-container', cont: 'container con più colli', altro: 'imballaggio oltre 400 kg' }[imbe] || imbe}: grande spandimento (grande imballaggio)` + CRIT };
+  if (pp && !singolo) return { grande: false, motivo: SL + ': piccola perdita da un grande imballaggio: piccolo spandimento' + CRIT };
+  if (singolo && n === 1 && q <= 400) return { grande: false, motivo: `${SL}: un solo collo (${q} kg ≤ 400 kg): piccolo spandimento` + CRIT };
+  if (singolo && n === 1) return { grande: true, motivo: `${SL}: ${q} kg in un solo imballaggio, oltre i 400 kg di un collo: grande spandimento` + CRIT };
+  if (singolo) return { grande: true, motivo: `${SL}: ${n} colli coinvolti: grande spandimento (molti colli piccoli)` + CRIT };
+  if (imbe === 'cont') return { grande: true, motivo: SL + ': container con più colli: grande spandimento (molti colli)' + CRIT };
+  return { grande: true, motivo: `${SL}: ${{ ibc: 'IBC', cist: 'cisterna / tank-container', cont: 'container con più colli', altro: 'imballaggio oltre 400 kg' }[imbe] || imbe}: grande spandimento (grande imballaggio)` + CRIT };
 }
 const notaSolidi = () => '';
 function isoNumero(g) { return typeof g.isolamento_m === 'number' ? g.isolamento_m : (statoSolido() ? 25 : 50); }
