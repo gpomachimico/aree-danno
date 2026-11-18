@@ -36,6 +36,11 @@ function mostraVoce(iv) {
     <span class="tag">Classe ${cur.classe}${cur.sub ? ' (' + cur.sub + ')' : ''}</span>${cur.pg && cur.pg !== '–' ? `<span class="tag">GI ${cur.pg}</span>` : ''}<span class="tag">EmS ${cur.ems}</span><span class="tag">ERG Guida ${cur.guida}${d.guide && d.guide.length > 1 ? ' (anche ' + d.guide.slice(1).join(', ') + ')' : ''}</span>${cur.mp ? '<span class="tag">Inquinante marino</span>' : ''}${cur.tih ? '<span class="tag tih">TIH – Tabella 1</span>' : ''}<span class="tag">${NOMI_MOD[cur.modello]}</span>
     ${cur.sn ? `<br><span class="small">Rischio sussidiario: ${cur.sn} (IMDG)</span>` : ''}${cur.ems === '*' ? '<br><span class="small">EmS: la DGL rimanda alla nota (*) della colonna 15.</span>' : ''}${/P$/.test(cur.guida) ? '<br><span class="small">Guida con "P": rischio di polimerizzazione violenta se riscaldato o contaminato.</span>' : ''}${d.guidaRegola ? '<br><span class="small">Esplosivi: l\'ERG non li elenca per numero ONU; guida assegnata dalla divisione (112 per 1.1, 1.2, 1.3, 1.5; 114 per 1.4, 1.6).</span>' : ''}${d.automatica ? '<br><span class="small">Dati da estrazione automatica (IMDG 42-24, ERG 2024): voce non ancora verificata a mano.</span>' : ''}</div>${varSel}`;
   if ($('varSel')) $('varSel').onchange = e => mostraVoce(+e.target.value);
+  if (d.modelli && d.modelli.length > 1) {
+    if (!d.modelli.includes(cur.modello)) cur.modello = d.modelli[0];
+    $('idbox').insertAdjacentHTML('beforeend', `<label>Scenario</label><div class="chips" id="modSel">${d.modelli.map(m => `<button type="button" class="chip ${m === cur.modello ? 'on' : ''}" data-m="${m}">${NOMI_MOD[m]}</button>`).join('')}</div>`);
+    $('modSel').querySelectorAll('button').forEach(b => b.onclick = () => { cur.modello = b.dataset.m; $('modSel').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); $('out').style.display = 'none'; buildFields(); });
+  }
   buildFields();
 }
 
@@ -101,9 +106,15 @@ function buildFields() {
       <div class="row">${f('vol', 'Volume rilasciato (L)', 1000)}${f('area', 'Area bacino (m²) – vuoto = non confinato', '', 'placeholder="non confinato"')}</div>
       <p class="small">Sostanza di calcolo: ${p.nome}</p>`;
   } else if (m === 'BL') {
-    h = `<label>Contenitore</label><select id="imb"><option value="400">Bombola/serbatoio 1000 L (~400 kg)</option><option value="8800" selected>Serbatoio 22 000 L (~8800 kg)</option><option value="16800">Tank 42 000 L (~16 800 kg)</option><option value="0">Altro (inserisci massa)</option></select>
-      <div class="row">${f('massa', 'Massa di GPL (kg)', 8800)}${f('pmpa', 'Pressione al cedimento (MPa)', 1.7)}</div>
-      <p class="small">Sostanza di calcolo: ${p.nome}</p>`;
+    const rho = p.rho_liq || 0.5, mk = V => Math.round(V * rho * 0.8 / 100) * 100;
+    h = `<label>Contenitore</label><select id="imb"><option value="${mk(1000)}">Bombola/serbatoio 1000 L (~${mk(1000)} kg)</option><option value="${mk(22000)}" selected>Serbatoio 22 000 L (~${mk(22000)} kg)</option><option value="${mk(42000)}">Tank 42 000 L (~${mk(42000)} kg)</option><option value="0">Altro (inserisci massa)</option></select>
+      <div class="row">${f('massa', `Massa di ${p.nome.split(' (')[0]} (kg)`, mk(22000))}${f('pmpa', 'Pressione al cedimento (MPa)', 1.7)}</div>
+      <p class="small">Sostanza di calcolo: ${p.nome}. Masse proposte: volume × densità del liquido ${String(rho).replace('.', ',')} kg/L × riempimento 80%.${p.fonte ? ' Dati: ' + p.fonte + '.' : ''}</p>`;
+  } else if (m === 'GA' && typeof p.pv === 'number') {
+    h = `<label>Imballaggio</label><select id="imb"><option value="200">Fusto 200 L</option><option value="1000" selected>IBC 1000 L</option><option value="24000">Cisterna / tank-container 24 000 L</option><option value="0">Altro (inserisci volume)</option></select>
+      <div class="row">${f('vol', 'Volume rilasciato (L)', 1000)}${f('area', 'Area bacino (m²)', '', 'placeholder="non confinato"')}</div>
+      <div class="row">${f('pv', `Tensione di vapore (kPa) – vuoto = ${String(p.pv).replace('.', ',')} kPa`, '', 'placeholder="da banca dati"')}<div></div></div>
+      <p class="small">Sostanza di calcolo: ${p.nome}. Soglie: LC50 ${p.LC50} ppm (ratto, ${p.LC50_t}) · IDLH ${p.IDLH} ppm · LOC ${p.LOC} ppm</p>`;
   } else if (m === 'GA') {
     h = `<label>Imballaggio</label><select id="imb"><option value="200">Fusto 200 L</option><option value="1000" selected>IBC 1000 L</option><option value="24000">Cisterna / tank-container 24 000 L</option><option value="0">Altro (inserisci volume)</option></select>
       <div class="row">${f('vol', 'Volume rilasciato (L)', 1000)}${f('conc', 'Concentrazione HCl (%)', 33, 'min="30" max="38"')}</div>
@@ -118,6 +129,7 @@ function buildFields() {
   $('fields').innerHTML = h;
   $('inbox').classList.remove('hide');
   $('meteobox').classList.toggle('hide', m !== 'GA');
+  if (p.fonte && m !== 'BL') $('fields').insertAdjacentHTML('beforeend', `<p class="small">Fonti dei dati: ${p.fonte}.</p>`);
   $('calc').classList.remove('hide');
   bindExtra();
   const imb = $('imb');
@@ -138,9 +150,18 @@ $('calc').onclick = () => {
     if (m === 'PF') {
       const vol = num('vol'); if (!vol || vol <= 0) throw 'Inserire il volume';
       risultati = [M.poolFire({ volume_m3: vol / 1000, densita_rel: p.dens, mburn: p.mburn, dHc_kJkg: p.dHc, area_m2: num('area'), sostanza: sost + ' (' + p.nome + ')' })];
+      if (p.fonte) risultati[0].ipotesi.push('Dati della sostanza: ' + p.fonte);
     } else if (m === 'BL') {
       const ms = num('massa'); if (!ms || ms <= 0) throw 'Inserire la massa';
-      risultati = [M.bleve({ massa_kg: ms, P_MPa: num('pmpa') || 1.7, dHc_kJkg: p.dHc, sostanza: sost })];
+      risultati = [M.bleve({ massa_kg: ms, P_MPa: num('pmpa') || 1.7, dHc_kJkg: p.dHc, sostanza: sost + (p.nome ? ' (' + p.nome + ')' : '') })];
+      risultati[0].ipotesi.push(`Calore di combustione ${p.dHc} kJ/kg` + (p.fonte ? ': ' + p.fonte : ''));
+    } else if (m === 'GA' && typeof p.pv === 'number') {
+      const vol = num('vol'); if (!vol || vol <= 0) throw 'Inserire il volume';
+      const pvU = num('pv'), pv = pvU ?? p.pv, Trif = p.pv_T ?? 20;
+      const meteo = meteoUser ? [{ stabilita: $('stab').value, u_ms: num('vento') || 1, T_C: num('temp') ?? 20 }] : M.METEO_PREDEFINITO;
+      risultati = M.gaussianoMeteo({ volume_m3: vol / 1000, densita_soluzione: p.dens, frazione_tossico: p.frazione || 1, pm: p.pm, Pv_kPa: pv, Pv_rif_T_C: pvU ? undefined : Trif, area_m2: num('area'),
+        soglie_ppm: { LC50: p.LC50, IDLH: p.IDLH, LOC: p.LOC }, sostanza: `${sost} (${p.nome})`,
+        nota_soglie: `Soglie: LC50 = ${p.LC50} ppm (ratto, ${p.LC50_t}, senza correzione temporale: cautelativo se la durata supera 30 min); IDLH ${p.IDLH} ppm (NIOSH); LOC = IDLH/10 = ${p.LOC} ppm. Tensione di vapore ${pv} kPa ${pvU ? '(inserita dall\'utente)' : '(banca dati, ' + Trif + ' °C)'}${p.frazione ? '; frazione di sostanza tossica ' + p.frazione : ''}. Fonti: ${p.fonte}` }, meteo);
     } else if (m === 'GA') {
       const vol = num('vol'); if (!vol || vol <= 0) throw 'Inserire il volume';
       const c = num('conc') || 33, pvU = num('pv');
