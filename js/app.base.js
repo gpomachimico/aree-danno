@@ -166,6 +166,7 @@ $('calc').onclick = () => {
       risultati = M.gaussianoMeteo({ volume_m3: vol / 1000, densita_soluzione: p.dens, frazione_tossico: p.frazione || 1, pm: p.pm, Pv_kPa: pv, Pv_rif_T_C: pvU ? undefined : Trif, area_m2: num('area'),
         soglie_ppm: { LC50: p.LC50, IDLH: p.IDLH, LOC: p.LOC }, sostanza: `${sost} (${p.nome})`,
         nota_soglie: `Soglie: LC50 = ${p.LC50} ppm (ratto, ${p.LC50_t}, senza correzione temporale: cautelativo se la durata supera 30 min); IDLH ${p.IDLH} ppm (NIOSH); LOC = IDLH/10 = ${p.LOC} ppm. Tensione di vapore ${pv} kPa ${pvU ? '(inserita dall\'utente)' : '(banca dati, ' + Trif + ' °C)'}${p.frazione ? '; frazione di sostanza tossica ' + p.frazione : ''}. Fonti: ${p.fonte}` }, meteo);
+      if (p.avviso) risultati.forEach(r => r.avvisi = [p.avviso, ...(r.avvisi || [])]);
     } else if (m === 'GA') {
       const vol = num('vol'); if (!vol || vol <= 0) throw 'Inserire il volume';
       const c = num('conc') || 33, pvU = num('pv');
