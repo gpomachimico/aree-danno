@@ -110,16 +110,16 @@ function casoTIH(imbe, q) {
   const acquaTxt = inAcqua ? ' – rilascio in acqua' + (cur.t2 ? ` (gas sviluppati: ${cur.t2.join(', ')}, Tabella 2)` : '') : '';
   if (grande && v.d.grande === 'Tabella 3') {
     const i = +$('t3cont').value, vento = $('t3vento').value, r = ONU.t3[cur.u].righe[i];
-    const km = r[per + '_km'][vento];
+    const km = String(r[per + '_km'][vento]).replace('.', ',');
     const plus = r.plus.includes((per === 'giorno' ? 1 : 4) + ['debole', 'moderato', 'forte'].indexOf(vento));
-    return { chiave: 't3', dist: r.isol_m, prot_km: km, plus, per,
+    return { chiave: 't3', dist: r.isol_m, prot_km: r[per + '_km'][vento], plus, per,
       dir: `in tutte le direzioni; poi protezione sottovento ${km}${plus ? '+' : ''} km (${per})`,
       etichetta: `Tabella 3 ERG – grande spandimento, ${TRAD_CONT[r.contenitore] || r.contenitore}, vento ${vento}`,
       motivo: `${sp.motivo}; ${nomeVoce}${acquaTxt}. Tabella 3 ERG 2024 (isolamento ${r.isol_m} m; protezione ${per} ${km}${plus ? '+' : ''} km)` };
   }
   const d = grande ? v.d.grande : v.d.piccolo;
-  const km = d[per + '_km'], plus = per === 'notte' && d.notte_plus;
-  return { chiave: 't1', dist: d.isol_m, prot_km: km, plus, per,
+  const km = String(d[per + '_km']).replace('.', ','), plus = per === 'notte' && d.notte_plus;
+  return { chiave: 't1', dist: d.isol_m, prot_km: d[per + '_km'], plus, per,
     dir: `in tutte le direzioni; poi protezione sottovento ${km}${plus ? '+' : ''} km (${per})`,
     etichetta: `Tabella 1 ERG – ${grande ? 'grande' : 'piccolo'} spandimento`,
     motivo: `${sp.motivo}; ${nomeVoce}${acquaTxt}. Tabella 1 ERG 2024: isolare ${d.isol_m} m, proteggere sottovento ${km}${plus ? '+' : ''} km di ${per}` };
@@ -129,7 +129,46 @@ function righeT1() {
   const { voci } = vociT1(cur.u, $('inAcqua') && $('inAcqua').checked);
   if (!voci.length) return [];
   const v = voci[$('t1voce') ? +$('t1voce').value : 0], s = v.d.piccolo, g = v.d.grande;
-  const r = [['Tabella 1 – piccolo spandimento', `isolare ${s.isol_m} m; proteggere sottovento ${s.giorno_km} km di giorno, ${s.notte_km}${s.notte_plus ? '+' : ''} km di notte`]];
-  r.push(['Tabella 1 – grande spandimento', g === 'Tabella 3' ? 'vedi Tabella 3 (per contenitore e vento)' : `isolare ${g.isol_m} m; proteggere sottovento ${g.giorno_km} km di giorno, ${g.notte_km}${g.notte_plus ? '+' : ''} km di notte`]);
+  const kmv = x => String(x).replace('.', ',');
+  const r = [['Tabella 1 – piccolo spandimento', `isolare ${s.isol_m} m; proteggere sottovento ${kmv(s.giorno_km)} km di giorno, ${kmv(s.notte_km)}${s.notte_plus ? '+' : ''} km di notte`]];
+  r.push(['Tabella 1 – grande spandimento', g === 'Tabella 3' ? 'si applica la Tabella 3 ERG (per contenitore, periodo e vento), riportata sotto' : `isolare ${g.isol_m} m; proteggere sottovento ${kmv(g.giorno_km)} km di giorno, ${kmv(g.notte_km)}${g.notte_plus ? '+' : ''} km di notte`]);
   return r;
+}
+
+// ---------- Tabella 3 ERG nel report e nel riquadro ERG ----------
+const NOTA_T1 = 'Tabella 1 ERG 2024 (pagine verdi, "Initial Isolation and Protective Action Distances"): distanze per le sostanze tossiche per inalazione (TIH). Piccolo spandimento: fino a 208 L (un collo piccolo o una piccola perdita da un grande imballaggio); grande spandimento: oltre 208 L. Isolamento: raggio in tutte le direzioni; protezione: distanza sottovento entro cui proteggere le persone (evacuazione o riparo al chiuso), di giorno o di notte.';
+const NOTA_T3 = 'Tabella 3 ERG 2024 (pagine verdi, "Initial Isolation and Protective Action Distances for Different Quantities of Six Common TIH Gases"): distanze per i grandi spandimenti di sei gas tossici per inalazione di uso comune (ammoniaca anidra, cloro, ossido di etilene, acido cloridrico anidro e refrigerato, acido fluoridrico anidro, anidride solforosa), in funzione del tipo di contenitore, del periodo (giorno o notte) e del vento: debole < 10 km/h, moderato 10–20 km/h, forte > 20 km/h. "+": la distanza può essere maggiore in certe condizioni atmosferiche.';
+function rigaT3Scelta() {
+  const t = ONU.t3[cur.u]; if (!t) return -1;
+  if (cur.modello === 'GL' && $('glc')) {
+    const c = $('glc').value, f = re => t.righe.findIndex(r => re.test(r.contenitore));
+    if (c === 'cist') return f(/Highway/);
+    if (c === 'bomb' || c === 'ton') { const i = f(/single ton/); return i >= 0 ? i : f(/small cylinders/); }
+    return -1;
+  }
+  const r = typeof risultati !== 'undefined' && risultati[tabSel];
+  return $('t3cont') && r && r.ergCaso && r.ergCaso.chiave === 't3' ? +$('t3cont').value : -1;
+}
+function tabella3() {
+  const t = ONU.t3[cur.u]; if (!t) return null;
+  const sel = rigaT3Scelta(), V = ['debole', 'moderato', 'forte'], n = x => String(x).replace('.', ',');
+  const righe = t.righe.map((r, i) => ({
+    sel: i === sel, cont: TRAD_CONT[r.contenitore] || r.contenitore, isol: r.isol_m,
+    giorno: V.map((v, j) => n(r.giorno_km[v]) + (r.plus.includes(1 + j) ? '+' : '')),
+    notte: V.map((v, j) => n(r.notte_km[v]) + (r.plus.includes(4 + j) ? '+' : ''))
+  }));
+  return { nome: t.nome, righe, sel };
+}
+function tabella3HTML(esc = x => x) {
+  const T = tabella3(); if (!T) return '';
+  const rows = T.righe.map(r => `<tr${r.sel ? ' style="font-weight:bold"' : ''}><td>${esc(r.cont)}${r.sel ? ' ◀' : ''}</td><td class="n">${r.isol} m</td>${r.giorno.map(x => `<td class="n">${x}</td>`).join('')}${r.notte.map(x => `<td class="n">${x}</td>`).join('')}</tr>`).join('');
+  return `<p class="small" style="margin:10px 0 4px"><b>Tabella 3 ERG 2024 – ${esc(T.nome)}</b> (protezione sottovento in km)</p>
+    <table class="t3"><tr><th rowspan="2">Contenitore</th><th rowspan="2">Isolamento</th><th colspan="3">Giorno – vento</th><th colspan="3">Notte – vento</th></tr>
+    <tr><th>debole</th><th>mod.</th><th>forte</th><th>debole</th><th>mod.</th><th>forte</th></tr>${rows}</table>
+    <p class="small">${esc(NOTA_T3)}${T.sel >= 0 ? ' In grassetto (◀) la riga corrispondente al recipiente indicato.' : ''}</p>`;
+}
+function tabella3Testo() {
+  const T = tabella3(); if (!T) return '';
+  return `\nTabella 3 ERG 2024 – ${T.nome} (isolamento; protezione sottovento in km, giorno e notte con vento debole/moderato/forte):\n` +
+    T.righe.map(r => `- ${r.cont}${r.sel ? ' [recipiente indicato]' : ''}: isolare ${r.isol} m; giorno ${r.giorno.join(' / ')}; notte ${r.notte.join(' / ')}`).join('\n') + `\n${NOTA_T3}\n`;
 }

@@ -131,7 +131,7 @@ function legendaSoglie(r) {
   if (/Pool fire/.test(r.scenario)) { grand = 'Irraggiamento termico stazionario'; val = { elevata_letalita: '12,5 kW/m²', inizio_letalita: '7 kW/m²', lesioni_irreversibili: '5 kW/m²', lesioni_reversibili: '3 kW/m²' }; }
   else if (/BLEVE/.test(r.scenario)) { grand = 'Irraggiamento termico variabile (dose termica della fireball)'; val = { elevata_letalita: 'raggio della fireball', inizio_letalita: '350 kJ/m²', lesioni_irreversibili: '200 kJ/m²', lesioni_reversibili: '125 kJ/m²' }; }
   else if (/TNT/.test(r.scenario)) { grand = 'Sovrappressione di picco'; val = { elevata_letalita: '0,3 bar', elevata_letalita_spazi_aperti: '0,6 bar', inizio_letalita: '0,14 bar', lesioni_irreversibili: '0,07 bar', lesioni_reversibili: '0,03 bar' }; }
-  else if (/gaussiana/.test(r.scenario)) { grand = 'Concentrazione in aria della sostanza tossica'; val = { LC50: `${p.LC50} ppm`, IDLH: `${p.IDLH} ppm`, LOC: `${p.LOC} ppm` }; }
+  else if (/gaussiana|Gas tossico liquefatto/.test(r.scenario)) { grand = 'Concentrazione in aria della sostanza tossica'; val = { LC50: `${p.LC50} ppm`, IDLH: `${p.IDLH} ppm`, LOC: `${p.LOC} ppm` }; }
   const righe = Object.keys(r.distanze_m || {}).map(k => ({ chiave: k, nome: SIG[k] ? SIG[k].split(':')[0] : k, valore: val[k] || '', distanza: r.distanze_m[k], significato: SIG[k] ? (t => t.charAt(0).toUpperCase() + t.slice(1))(SIG[k].split(': ').slice(1).join(': ')) : '' }));
   return { grandezza: grand, righe };
 }
@@ -157,6 +157,8 @@ function testoReport() {
   if (r.meteo) t += `- Meteo ${r.meteo.origine}: ${r.meteo.stabilita}, ${r.meteo.vento_ms} m/s, ${r.meteo.temperatura_C} °C\n`;
   if (r.avvisi && r.avvisi.length) t += `\nAVVISI\n${r.avvisi.map(x => '- ' + x).join('\n')}\n`;
   t += `\nERG 2024 Guida ${cur.guida} (${g.titolo_it || g.titolo}):\n${ergRighe(g, cur.guida).map(([a, b]) => '- ' + a + ': ' + b).join('\n')}\n`;
+  if (cur.tih) t += `${NOTA_T1}\n`;
+  t += tabella3Testo();
   if (!r.soloERG) {
     t += `\nLEGENDA\n${LEGENDA_ZONE.map(([a, b]) => '- ' + a + ': ' + b).join('\n')}\n`;
     for (const x of legendaSoglie(r).righe) t += `- ${x.nome}: ${x.significato}\n`;
@@ -188,10 +190,12 @@ $('print').onclick = () => {
       <p class="nota">"Non raggiunta": la soglia non è superata nemmeno in prossimità della sorgente.</p>`;
   }
   if (r.ergCaso) h += `<h2>Distanza ERG da applicare</h2><p>${r.ergCaso.dist} m${r.ergCaso.dir ? ' ' + esc(r.ergCaso.dir) : ''} – ${esc(r.ergCaso.etichetta)}. ${esc(r.ergCaso.motivo)}</p>`;
-  h += `<div class="schema"><h2>Schema delle zone</h2>${$('graf').innerHTML}<div class="nota"> Cerchi colorati: ${r.soloERG ? (r.ergCaso && r.ergCaso.prot_km ? `isolamento ${r.ergCaso.dist} m (arancio) e protezione sottovento ${r.ergCaso.prot_km} km (giallo, rappresentata come cerchio: inviluppo cautelativo per direzione del vento incerta)` : 'distanza ERG da applicare') : 'Zona I (rosso), Zona II (arancio), Zona III (giallo)'}. Tratteggio: isolamento iniziale ERG. Barra: scala grafica.${r.meteo ? ' Per la dispersione tossica le distanze sono sottovento e sono rappresentate come cerchi (inviluppo cautelativo per direzione del vento incerta).' : ''}</div></div>`;
+  h += `<div class="schema"><h2>Schema delle zone</h2>${$('graf').innerHTML}<div class="nota"> Cerchi colorati: ${r.soloERG ? (r.ergCaso && r.ergCaso.prot_km ? `isolamento ${r.ergCaso.dist} m (arancio) e protezione sottovento ${String(r.ergCaso.prot_km).replace('.', ',')} km (giallo, rappresentata come cerchio: inviluppo cautelativo per direzione del vento incerta)` : 'distanza ERG da applicare') : 'Zona I (rosso), Zona II (arancio), Zona III (giallo)'}. Tratteggio: isolamento iniziale ERG. Barra: scala grafica.${r.meteo ? ' Per la dispersione tossica le distanze sono sottovento e sono rappresentate come cerchi (inviluppo cautelativo per direzione del vento incerta).' : ''}</div></div>`;
   h += `<h2>Ipotesi di calcolo</h2><ul>${r.ipotesi.map(x => `<li>${esc(x)}</li>`).join('')}${r.meteo ? `<li>Meteo ${r.meteo.origine}: ${r.meteo.stabilita}, ${r.meteo.vento_ms} m/s, ${r.meteo.temperatura_C} °C</li>` : ''}</ul>`;
   if (r.avvisi && r.avvisi.length) h += `<h2>Avvisi</h2><ul>${r.avvisi.map(x => `<li>${esc(x)}</li>`).join('')}</ul>`;
   h += `<h2>ERG 2024 – Guida ${esc(cur.guida)}</h2><p class="nota">${esc(g.titolo_it || g.titolo)}</p><table>${ergRighe(g, cur.guida).map(([a, b]) => `<tr><td>${esc(a)}</td><td>${esc(b)}</td></tr>`).join('')}</table>`;
+  if (cur.tih) h += `<p class="nota">${esc(NOTA_T1)}</p>`;
+  h += tabella3HTML(esc).replace(/class="small"/g, 'class="nota"');
   if (!r.soloERG) {
     h += `<div class="legenda"><h2>Legenda</h2><h3>Zone di pianificazione (Linee guida PEE, Direttiva 7/12/2022)</h3><table>${LEGENDA_ZONE.map(([a, b], i) => `<tr><td class="lz"><span class="sw z${i + 1}"></span>${esc(a)}</td><td>${esc(b)}</td></tr>`).join('')}</table>
       <h3>Soglie di danno (D.M. 9/5/2001, Tab. 2)</h3><table>${legendaSoglie(r).righe.map(x => `<tr><td class="lz">${esc(x.nome)}${x.valore ? `<br><b>${esc(x.valore)}</b>` : ''}</td><td>${esc(x.significato)}</td></tr>`).join('')}</table></div>`;

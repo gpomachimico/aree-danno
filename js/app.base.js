@@ -361,7 +361,7 @@ function mostra() {
   } else {
     const c = r.ergCaso;
     t += `<tr><td><span class="sw" style="background:var(--z2)"></span><b>Distanza da applicare</b><br><span class="small">${c.etichetta}</span></td><td class="n">${c.dist} m${c.prot_km ? '<br><span class="small">in tutte le direzioni</span>' : (c.dir ? ' ' + c.dir : '')}</td></tr>`;
-    if (c.prot_km) t += `<tr><td><span class="sw" style="background:var(--z3)"></span><b>Poi proteggere sottovento</b><br><span class="small">${c.per === 'notte' ? 'di notte' : 'di giorno'}</span></td><td class="n">${c.prot_km}${c.plus ? '+' : ''} km</td></tr>`;
+    if (c.prot_km) t += `<tr><td><span class="sw" style="background:var(--z3)"></span><b>Poi proteggere sottovento</b><br><span class="small">${c.per === 'notte' ? 'di notte' : 'di giorno'}</span></td><td class="n">${String(c.prot_km).replace('.', ',')}${c.plus ? '+' : ''} km</td></tr>`;
     t += `<tr><td colspan="2" class="small">${c.motivo}</td></tr>`;
   }
   $('tab').innerHTML = t + '</table>';
@@ -400,6 +400,7 @@ function ergHTML(g, r) {
   else if (g.evac_grande_m)
     note = `<p class="small">"Grande spandimento": l'ERG definisce piccoli i rilasci fino a 208 L e grandi quelli superiori (definizione riportata per la Tabella 1).${statoSolido() ? ' Per i solidi l\'app usa il criterio per imballaggio o, se indicata, la densità apparente (vedi ipotesi).' : ''}</p>`;
   if (g.incendio_nota && !(+cur.guida === 112 || +cur.guida === 114)) note += `<p class="small">${g.incendio_nota}</p>`;
+  if (ONU.t3[cur.u]) note += tabella3HTML();
   if (cur.tih) note += `<p class="small">Tabella 1: piccolo spandimento fino a 208 L (collo piccolo o piccola perdita da un grande imballaggio); grande spandimento oltre 208 L (grande imballaggio o più colli piccoli).${statoSolido() ? ' Per i solidi l\'app usa il criterio per imballaggio o, se indicata, la densità apparente (vedi ipotesi).' : ''} La distanza di protezione è sottovento; nello schema e sulla mappa è disegnata come cerchio (inviluppo cautelativo per direzione del vento incerta). "+": la distanza può essere maggiore in certe condizioni atmosferiche.</p>`;
   if (g.automatica) note += `<p class="small">Valori letti automaticamente dalla guida ERG.</p>`;
   if (g.testo_en) note += `<details class="small"><summary>Testo originale ERG (Evacuation)</summary><p>${g.testo_en}</p></details>`;
@@ -436,7 +437,7 @@ function disegna(r, g) {
   s += `<line x1="12" y1="${W - 14}" x2="${12 + nice * sc}" y2="${W - 14}" stroke="var(--ink)" stroke-width="2"/><text x="12" y="${W - 20}" font-size="11" fill="var(--ink)">${nice} m</text>`;
   if (r.meteo) s += `<text x="${W - 12}" y="18" font-size="11" text-anchor="end" fill="var(--ink)">vento → sottovento</text>`;
   $('graf').innerHTML = s + '</svg>';
-  $('grafnote').textContent = (r.meteo ? 'Distanze sottovento rappresentate come cerchi (inviluppo cautelativo per direzione del vento incerta). ' : '') + 'Tratteggio: isolamento iniziale ERG ' + iso + ' m. ' + (ergApp ? 'Puntinato: distanza ERG applicabile (' + r.ergCaso.etichetta + ') ' + ergApp + ' m. ' : '') + (r.soloERG ? 'Area colorata: distanza ERG da applicare' + (r.ergCaso && r.ergCaso.prot_km ? ` (arancio: isolamento ${r.ergCaso.dist} m; giallo: protezione sottovento ${r.ergCaso.prot_km} km, disegnata come cerchio). ` : '. ') : '') + (cer.length < 3 && !r.soloERG ? 'Le zone non raggiunte non sono disegnate.' : '');
+  $('grafnote').textContent = (r.meteo ? 'Distanze sottovento rappresentate come cerchi (inviluppo cautelativo per direzione del vento incerta). ' : '') + 'Tratteggio: isolamento iniziale ERG ' + iso + ' m. ' + (ergApp ? 'Puntinato: distanza ERG applicabile (' + r.ergCaso.etichetta + ') ' + ergApp + ' m. ' : '') + (r.soloERG ? 'Area colorata: distanza ERG da applicare' + (r.ergCaso && r.ergCaso.prot_km ? ` (arancio: isolamento ${r.ergCaso.dist} m; giallo: protezione sottovento ${String(r.ergCaso.prot_km).replace('.', ',')} km, disegnata come cerchio). ` : '. ') : '') + (cer.length < 3 && !r.soloERG ? 'Le zone non raggiunte non sono disegnate.' : '');
 }
 
 $('copy').onclick = async () => {

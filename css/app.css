@@ -39,3 +39,5 @@ ul.ip{margin:0;padding-left:18px;font-size:13.5px;color:var(--mute)}ul.ip li{mar
 #onures .res b{margin-right:6px}
 .tag.tih{background:#fdecea;border-color:#c0392b;color:#c0392b;font-weight:600}
 details.small summary{cursor:pointer;margin-top:6px}
+table.t3 th,table.t3 td{padding:4px 3px;font-size:12px}
+table.t3 th{text-align:center}
