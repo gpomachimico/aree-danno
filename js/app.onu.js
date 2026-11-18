@@ -105,7 +105,7 @@ function casoTIH(imbe, q) {
   if (soloAcqua) return null;
   const v = voci[$('t1voce') ? +$('t1voce').value : 0];
   const per = $('periodo') ? $('periodo').value : 'giorno';
-  const grande = q > 208 && imbe !== 'collo';
+  const sp = tipoSpandimento(imbe, q), grande = sp.grande;
   const nomeVoce = v.nomi[0];
   const acquaTxt = inAcqua ? ' – rilascio in acqua' + (cur.t2 ? ` (gas sviluppati: ${cur.t2.join(', ')}, Tabella 2)` : '') : '';
   if (grande && v.d.grande === 'Tabella 3') {
@@ -115,14 +115,14 @@ function casoTIH(imbe, q) {
     return { chiave: 't3', dist: r.isol_m, prot_km: km, plus, per,
       dir: `in tutte le direzioni; poi protezione sottovento ${km}${plus ? '+' : ''} km (${per})`,
       etichetta: `Tabella 3 ERG – grande spandimento, ${TRAD_CONT[r.contenitore] || r.contenitore}, vento ${vento}`,
-      motivo: `Quantità > 208 L: grande spandimento; ${nomeVoce}${acquaTxt}. Tabella 3 ERG 2024 (isolamento ${r.isol_m} m; protezione ${per} ${km}${plus ? '+' : ''} km)` };
+      motivo: `${sp.motivo}; ${nomeVoce}${acquaTxt}. Tabella 3 ERG 2024 (isolamento ${r.isol_m} m; protezione ${per} ${km}${plus ? '+' : ''} km)` };
   }
   const d = grande ? v.d.grande : v.d.piccolo;
   const km = d[per + '_km'], plus = per === 'notte' && d.notte_plus;
   return { chiave: 't1', dist: d.isol_m, prot_km: km, plus, per,
     dir: `in tutte le direzioni; poi protezione sottovento ${km}${plus ? '+' : ''} km (${per})`,
     etichetta: `Tabella 1 ERG – ${grande ? 'grande' : 'piccolo'} spandimento`,
-    motivo: `${grande ? 'Quantità > 208 L: grande spandimento' : 'Quantità ≤ 208 L o collo singolo: piccolo spandimento'} (definizione ERG); ${nomeVoce}${acquaTxt}. Tabella 1 ERG 2024: isolare ${d.isol_m} m, proteggere sottovento ${km}${plus ? '+' : ''} km di ${per}` };
+    motivo: `${sp.motivo}; ${nomeVoce}${acquaTxt}. Tabella 1 ERG 2024: isolare ${d.isol_m} m, proteggere sottovento ${km}${plus ? '+' : ''} km di ${per}` };
 }
 
 function righeT1() {

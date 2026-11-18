@@ -67,13 +67,17 @@ function ergFields() {
       <option value="collo">Collo / bombola singola</option><option value="fusto">Fusto (fino a 200 L)</option>
       <option value="ibc" selected>IBC 1000 L</option><option value="cist">Cisterna / tank-container</option><option value="cont">Container con più colli</option><option value="altro">Altro</option></select>
     <div class="row">${f('qta', gas ? 'Capacità del recipiente (L)' : `Quantità coinvolta (<span id="qtaU">${solido ? 'kg' : 'L'}</span>)`, 1000)}<div></div></div>
+    ${gas ? '' : `<div id="solBox" class="${solido ? '' : 'hide'}">
+      <div class="row">${f('ncolli2', 'Colli coinvolti', 1, 'min="1" step="1"')}${f('rhoapp', 'Densità apparente (kg/L) – facoltativa', '', 'placeholder="non nota"')}</div>
+      ${chk('piccolaPerdita', 'Solo una piccola perdita da un grande imballaggio')}
+      <p class="small">Solidi: l'ERG fissa la soglia solo in volume (208 L). Senza densità l'app applica il criterio per imballaggio: piccolo = un solo collo fino a 400 kg (IMDG 6.1.4; grandi imballaggi oltre 400 kg o 450 L, IMDG 1.2.1) o piccola perdita da un grande imballaggio; grande = IBC, grande imballaggio, cisterna, container o più colli. Con la densità apparente si confronta il volume con 208 L.</p></div>`}
     ${chk('fuoco', 'Incendio in atto o probabile')}${cur.tih ? campiTIH() : ''}`;
 }
 function bindExtra() {
   const a = $('nemTot'), b = $('nemCol');
   if (a) { a.onclick = () => { a.classList.add('on'); b.classList.remove('on'); $('boxTot').classList.remove('hide'); $('boxCol').classList.add('hide'); };
            b.onclick = () => { b.classList.add('on'); a.classList.remove('on'); $('boxCol').classList.remove('hide'); $('boxTot').classList.add('hide'); }; }
-  if ($('stato')) $('stato').onchange = () => { if ($('qtaU')) $('qtaU').textContent = $('stato').value === 'sol' ? 'kg' : 'L'; };
+  if ($('stato')) $('stato').onchange = () => { const s = $('stato').value === 'sol'; if ($('qtaU')) $('qtaU').textContent = s ? 'kg' : 'L'; if ($('solBox')) $('solBox').classList.toggle('hide', !s); };
   if ($('t1sel')) { aggiornaT1sel(); if ($('inAcqua')) $('inAcqua').onchange = aggiornaT1sel; }
   const ie = $('imbe');
   if (ie) ie.onchange = () => { const v = { collo: 50, fusto: 200, ibc: 1000, cist: 24000, cont: 10000 }[ie.value]; if (v) $('qta').value = v; };
@@ -195,10 +199,10 @@ function casoERGgenerico(imbe, q) {
   const isoNum = isoNumero(g);
   if (fuoco && g.incendio_m && imbe !== 'collo' && imbe !== 'fusto')
     return { chiave: 'incendio', dist: g.incendio_m, etichetta: 'Incendio (cisterna o carico)', motivo: 'Incendio con cisterna, IBC o carico coinvolti: distanza ERG per incendio' };
-  const grande = q > 208 && imbe !== 'collo';
+  const sp = tipoSpandimento(imbe, q), grande = sp.grande;
   if (grande && g.evac_grande_m)
-    return { chiave: 'grande', dist: g.evac_grande_m, dir: g.evac_grande_dir, etichetta: 'Grande spandimento', motivo: `Quantità > 208 ${unitaQ()}: grande spandimento secondo la definizione ERG${notaSolidi()}` };
-  return { chiave: 'iso', dist: isoNum, etichetta: 'Isolamento iniziale', motivo: grande ? 'Grande spandimento: per questa guida l\'ERG indica di aumentare la distanza sottovento se necessario' : `Quantità ≤ 208 ${unitaQ()} o collo singolo: piccolo spandimento${notaSolidi()}` + (fuoco ? ' (incendio di collo singolo: valutare caso per caso)' : '') };
+    return { chiave: 'grande', dist: g.evac_grande_m, dir: g.evac_grande_dir, etichetta: 'Grande spandimento', motivo: sp.motivo };
+  return { chiave: 'iso', dist: isoNum, etichetta: 'Isolamento iniziale', motivo: sp.motivo + (grande ? '; per questa guida l\'ERG indica di aumentare la distanza sottovento se necessario' : '') + (fuoco && !grande ? ' (incendio di collo singolo: valutare caso per caso)' : '') };
 }
 
 function alertBox(t) { $('idbox').insertAdjacentHTML('beforeend', `<div class="warn">${t}</div>`); }
@@ -207,7 +211,29 @@ function alertBox(t) { $('idbox').insertAdjacentHTML('beforeend', `<div class="w
 const SOLIDO_RE = /SOLID|ASBESTOS|POWDER|GRANUL|FLAKES|PELLET|CHIPS|DUST/;
 function statoSolido() { const e = $('stato'); return e ? e.value === 'sol' : (cur.st ? cur.st === 's' : SOLIDO_RE.test(cur.psn)); }
 const unitaQ = () => statoSolido() ? 'kg' : 'L';
-const notaSolidi = () => statoSolido() ? ' (l\'ERG fissa la soglia di 208 L in volume; per i solidi l\'app confronta i kg con 208)' : '';
+// Piccolo o grande spandimento. Liquidi e gas: soglia ERG 208 L. Solidi (criterio approvato da Luca 18/11/2026):
+// con densità apparente -> volume confrontato con 208 L; senza -> criterio per imballaggio (ERG + IMDG 1.2.1 e 6.1.4)
+function tipoSpandimento(imbe, q) {
+  if (!statoSolido() || cur.classe.startsWith('2')) {
+    const grande = q > 208 && imbe !== 'collo';
+    return { grande, motivo: grande ? 'Quantità > 208 L: grande spandimento (definizione ERG)' : 'Quantità ≤ 208 L o collo singolo: piccolo spandimento (definizione ERG)' };
+  }
+  const rho = num('rhoapp');
+  if (rho && rho > 0) {
+    const V = q / rho, grande = V > 208;
+    return { grande, motivo: `Solido: ${q} kg con densità apparente ${rho} kg/L = ${V.toFixed(0)} L ${grande ? '>' : '≤'} 208 L: ${grande ? 'grande' : 'piccolo'} spandimento (soglia ERG in volume)` };
+  }
+  const n = Math.max(1, Math.round(num('ncolli2') || 1)), pp = $('piccolaPerdita') && $('piccolaPerdita').checked;
+  const CRIT = ' (criterio per imballaggio per i solidi: ERG, descrizione di piccolo e grande spandimento; IMDG 42-24 6.1.4, massa netta massima del collo 400 kg, e 1.2.1, grandi imballaggi oltre 400 kg o 450 L)';
+  const singolo = imbe === 'collo' || imbe === 'fusto' || (imbe === 'altro' && q <= 400);
+  if (pp && !singolo) return { grande: false, motivo: 'Solido: piccola perdita da un grande imballaggio: piccolo spandimento' + CRIT };
+  if (singolo && n === 1 && q <= 400) return { grande: false, motivo: `Solido: un solo collo (${q} kg ≤ 400 kg): piccolo spandimento` + CRIT };
+  if (singolo && n === 1) return { grande: true, motivo: `Solido: ${q} kg in un solo imballaggio, oltre i 400 kg di un collo: grande spandimento` + CRIT };
+  if (singolo) return { grande: true, motivo: `Solido: ${n} colli coinvolti: grande spandimento (molti colli piccoli)` + CRIT };
+  if (imbe === 'cont') return { grande: true, motivo: 'Solido: container con più colli: grande spandimento (molti colli)' + CRIT };
+  return { grande: true, motivo: `Solido: ${{ ibc: 'IBC', cist: 'cisterna / tank-container', cont: 'container con più colli', altro: 'imballaggio oltre 400 kg' }[imbe] || imbe}: grande spandimento (grande imballaggio)` + CRIT };
+}
+const notaSolidi = () => '';
 function isoNumero(g) { return typeof g.isolamento_m === 'number' ? g.isolamento_m : (statoSolido() ? 25 : 50); }
 const isoTxt = g => typeof g.isolamento_m === 'number' ? g.isolamento_m + ' m' : String(g.isolamento_m).replace(/(\d+) liquidi/, '$1 m liquidi').replace(/(\d+) solidi/, '$1 m solidi');
 const fmt = v => v === null ? 'non raggiunta' : !Number.isFinite(v) ? '> 50 km' : v + ' m';
@@ -268,9 +294,9 @@ function ergHTML(g, r) {
   if (+cur.guida === 112 || +cur.guida === 114)
     note = `<p class="small">Per gli esplosivi l'ERG usa la voce "Large Spill" senza definirla in quantità: si intende un incidente in cui una parte consistente del carico è danneggiata o dispersa, senza incendio. Le zone D.M. calcolate dall'app riguardano solo la sovrappressione: frammenti e proiezioni sono coperti dalle distanze ERG.</p>`;
   else if (g.evac_grande_m)
-    note = `<p class="small">"Grande spandimento": l'ERG definisce piccoli i rilasci fino a 208 L e grandi quelli superiori (definizione riportata per la Tabella 1).</p>`;
+    note = `<p class="small">"Grande spandimento": l'ERG definisce piccoli i rilasci fino a 208 L e grandi quelli superiori (definizione riportata per la Tabella 1).${statoSolido() ? ' Per i solidi l\'app usa il criterio per imballaggio o, se indicata, la densità apparente (vedi ipotesi).' : ''}</p>`;
   if (g.incendio_nota && !(+cur.guida === 112 || +cur.guida === 114)) note += `<p class="small">${g.incendio_nota}</p>`;
-  if (cur.tih) note += `<p class="small">Tabella 1: piccolo spandimento fino a 208 L (collo piccolo o piccola perdita da un grande imballaggio); grande spandimento oltre 208 L (grande imballaggio o più colli piccoli). La distanza di protezione è sottovento; nello schema e sulla mappa è disegnata come cerchio (inviluppo cautelativo per direzione del vento incerta). "+": la distanza può essere maggiore in certe condizioni atmosferiche.</p>`;
+  if (cur.tih) note += `<p class="small">Tabella 1: piccolo spandimento fino a 208 L (collo piccolo o piccola perdita da un grande imballaggio); grande spandimento oltre 208 L (grande imballaggio o più colli piccoli).${statoSolido() ? ' Per i solidi l\'app usa il criterio per imballaggio o, se indicata, la densità apparente (vedi ipotesi).' : ''} La distanza di protezione è sottovento; nello schema e sulla mappa è disegnata come cerchio (inviluppo cautelativo per direzione del vento incerta). "+": la distanza può essere maggiore in certe condizioni atmosferiche.</p>`;
   if (g.automatica) note += `<p class="small">Valori letti automaticamente dalla guida ERG.</p>`;
   if (g.testo_en) note += `<details class="small"><summary>Testo originale ERG (Evacuation)</summary><p>${g.testo_en}</p></details>`;
   return `<table><tr><td>Guida ${cur.guida}</td><td class="v small">${g.titolo_it || g.titolo}</td></tr>${rows}</table>${note}${cur.modello === 'BL' ? bleveERG(r) : ''}`;

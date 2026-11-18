@@ -1,7 +1,7 @@
 /* Service worker: app utilizzabile offline.
    - file dell'app: cache all'installazione (aggiornata a ogni nuova versione)
    - tessere della mappa: solo quelle già visualizzate, con limite (policy OpenStreetMap: niente scaricamento massivo) */
-const VERSIONE = 'aree-danno-1.1-beta-2';
+const VERSIONE = 'aree-danno-1.1-beta-3';
 const APP = ['./', 'index.html', 'manifest.webmanifest', 'css/app.css', 'css/extra.css',
   'js/engine.js', 'js/data.js', 'js/onu.js', 'js/app.onu.js', 'js/app.base.js', 'js/app.extra.js',
   'vendor/leaflet.js', 'vendor/leaflet.css', 'vendor/images/marker-icon.png', 'vendor/images/marker-icon-2x.png',
