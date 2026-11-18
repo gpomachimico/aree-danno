@@ -195,6 +195,201 @@ function tnt({ neq_kg, fattore_tnt, fonte_fattore = '', sostanza = '' }) {
   };
 }
 
+// ============ 6. GAS TOSSICI LIQUEFATTI – termine sorgente + Britter-McQuaid ============
+// Correlazioni Britter-McQuaid (Workbook HSE CRR 17/1988) nella forma tabellata da AIChE/CCPS,
+// Guidelines for Consequence Analysis of Chemical Releases (1999); coefficienti come in GasDispersion.jl (MIT)
+function bmPlumeBeta(a) {
+  const pw = (tr, v) => { for (const [lim, f] of tr) if (a <= lim) return f(a); return tr[tr.length - 1][1](a); };
+  return [
+    [0.10, pw([[-0.55, () => 1.75], [-0.14, x => 0.24 * x + 1.88], [Infinity, x => -0.50 * x + 1.78]])],
+    [0.05, pw([[-0.68, () => 1.92], [-0.29, x => 0.36 * x + 2.16], [-0.18, () => 2.06], [Infinity, x => -0.56 * x + 1.96]])],
+    [0.02, pw([[-0.69, () => 2.08], [-0.31, x => 0.45 * x + 2.39], [-0.16, () => 2.25], [Infinity, x => -0.54 * x + 2.16]])],
+    [0.01, pw([[-0.70, () => 2.25], [-0.29, x => 0.49 * x + 2.59], [-0.20, () => 2.45], [Infinity, x => -0.52 * x + 2.35]])],
+    [0.005, pw([[-0.67, () => 2.40], [-0.28, x => 0.59 * x + 2.80], [-0.15, () => 2.63], [Infinity, x => -0.48 * x + 2.56]])],
+    [0.002, pw([[-0.69, () => 2.60], [-0.25, x => 0.39 * x + 2.87], [-0.13, () => 2.77], [Infinity, x => -0.50 * x + 2.71]])]
+  ];
+}
+function bmPuffBeta(a) {
+  const pw = (tr) => { for (const [lim, f] of tr) if (a <= lim) return f(a); return tr[tr.length - 1][1](a); };
+  return [
+    [0.10, pw([[-0.44, () => 0.70], [0.43, x => 0.26 * x + 0.81], [Infinity, () => 0.93]])],
+    [0.05, pw([[-0.56, () => 0.85], [0.31, x => 0.26 * x + 1.00], [Infinity, x => -0.12 * x + 1.12]])],
+    [0.02, pw([[-0.66, () => 0.95], [0.32, x => 0.36 * x + 1.19], [Infinity, x => -0.26 * x + 1.38]])],
+    [0.01, pw([[-0.71, () => 1.15], [0.37, x => 0.34 * x + 1.39], [Infinity, x => -0.38 * x + 1.66]])],
+    [0.005, pw([[-0.52, () => 1.48], [0.24, x => 0.26 * x + 1.62], [Infinity, x => -0.30 * x + 1.75]])],
+    [0.002, pw([[0.27, () => 1.83], [Infinity, x => -0.32 * x + 1.92]])],
+    [0.001, pw([[-0.10, () => 2.075], [Infinity, x => -0.27 * x + 2.05]])]
+  ];
+}
+// interpolazione lineare della concentrazione in funzione di beta = log10(x')
+function bmCurva(punti) {
+  const p = punti.slice().sort((a, b) => a[1] - b[1]);
+  const xff = Math.pow(10, p[p.length - 1][1]), A = p[p.length - 1][0] * xff * xff;
+  return { p, xff, A, c: b => { for (let i = 0; i < p.length - 1; i++) if (b <= p[i + 1][1]) { const [c0, b0] = p[i], [c1, b1] = p[i + 1]; return c0 + (c1 - c0) * (b - b0) / (b1 - b0); } return p[p.length - 1][0]; } };
+}
+const G0 = 9.80665, R_GAS = 8.314462618, P_ATM = 101325;
+// pennacchio continuo: q0 m3/s di gas puro alla densità rho_s, vento u10; restituisce c_m(x) (frazione in volume a T ambiente)
+function bmPennacchio({ q0, rho_s, rho_a, u, Tp = 1 }) {
+  const g0 = G0 * (rho_s - rho_a) / rho_a, D = Math.sqrt(q0 / u);
+  const alfa = 0.2 * Math.log10(g0 * g0 * q0 / Math.pow(u, 5));
+  let pt = bmPlumeBeta(alfa).map(([c, b]) => [c, b]);
+  let xnf = 30; const xmin = Math.pow(10, Math.min(...pt.map(q => q[1])));
+  if (xnf < xmin) pt = [[306 / (306 + xnf * xnf), Math.log10(xnf)], ...pt]; else xnf = xmin;
+  const cv = bmCurva(pt);
+  const cIso = x => { const xp = x / D; if (xp <= xnf) return xp > 0 ? 306 / (306 + xp * xp) : 1; if (xp < cv.xff) return cv.c(Math.log10(xp)); return cv.A / (xp * xp); };
+  const cm = x => { const c = cIso(x); return c / (c + (1 - c) * Tp); };
+  const criterio = Math.cbrt(g0 * q0 / D) / u;            // >= 0,15: comportamento da gas denso
+  // semilarghezza della nube (Britter-McQuaid): L_H = D + 8 l_b + 2,5 (l_b x²)^(1/3), l_b = g0' q0 / u³
+  const lb = g0 * q0 / Math.pow(u, 3), LH = x => D + 8 * lb + 2.5 * Math.cbrt(lb * x * x);
+  return { cm, D, alfa, g0, criterio, denso: g0 > 0 && criterio >= 0.15, xLontano: cv.xff * D, fuoriCampo: alfa > 1 || alfa < -1, LH };
+}
+// nube istantanea: volume V0 m3 di gas puro
+function bmNube({ V0, rho_s, rho_a, u, Tp = 1 }) {
+  const g0 = G0 * (rho_s - rho_a) / rho_a, L = Math.cbrt(V0);
+  const alfa = 0.5 * Math.log10(Math.max(g0, 1e-9) * L / (u * u));
+  const cv = bmCurva(bmPuffBeta(alfa)), xnf = Math.pow(10, cv.p[0][1]);
+  const cIso = x => { const xp = x / L; if (xp <= xnf) return Math.max(xp > 0 ? 3.24 / (3.24 + xp * xp) : 1, 0.1); if (xp < cv.xff) return cv.c(Math.log10(xp)); return cv.A / (xp * xp); };
+  const cm = x => { const c = cIso(x); return c / (c + (1 - c) * Tp); };
+  const criterio = Math.sqrt(Math.max(g0, 0) * L) / u;      // >= 0,2: comportamento da gas denso
+  // raggio della nube: R² = R0² + 1,2 (g0' V0)^(1/2) t, con t = x / u
+  const R0 = Math.cbrt(3 * V0 / (4 * Math.PI)), Rn = x => Math.sqrt(R0 * R0 + 1.2 * Math.sqrt(Math.max(g0, 0) * V0) * x / u);
+  return { cm, L, alfa, g0, criterio, denso: g0 > 0 && criterio >= 0.2, xLontano: cv.xff * L, fuoriCampo: alfa > 1 || alfa < -1, Rn };
+}
+// coefficienti di dispersione per nubi istantanee (AIChE/CCPS 1999): sigma_x = sigma_y
+const PUFF_CCPS = {
+  A: x => [0.18 * Math.pow(x, 0.92), 0.60 * Math.pow(x, 0.75)],
+  B: x => [0.14 * Math.pow(x, 0.92), 0.53 * Math.pow(x, 0.73)],
+  C: x => [0.10 * Math.pow(x, 0.92), 0.34 * Math.pow(x, 0.71)],
+  D: x => [0.06 * Math.pow(x, 0.92), 0.15 * Math.pow(x, 0.70)],
+  E: x => [0.04 * Math.pow(x, 0.92), 0.10 * Math.pow(x, 0.65)],
+  F: x => [0.02 * Math.pow(x, 0.89), 0.05 * Math.pow(x, 0.61)]
+};
+function psatBar(tab, T_C) {
+  const k = Object.keys(tab).map(Number).sort((a, b) => a - b);
+  const t = Math.min(Math.max(T_C, k[0]), k[k.length - 1]);
+  for (let i = 0; i < k.length - 1; i++) if (t <= k[i + 1]) {
+    const a = k[i], b = k[i + 1], ia = 1 / (a + 273.15), ib = 1 / (b + 273.15), it = 1 / (t + 273.15);
+    return Math.exp(Math.log(tab[a]) + (Math.log(tab[b]) - Math.log(tab[a])) * (it - ia) / (ib - ia));
+  }
+  return tab[k[k.length - 1]];
+}
+// portata da foro: fase liquida (Bernoulli, Cd 0,61) o fase gassosa (efflusso isoentropico, Cd 1)
+function portataForo({ fase, d_mm, P_Pa, T_K, prop, h_m = 1 }) {
+  const A = Math.PI * Math.pow(d_mm / 1000, 2) / 4;
+  if (fase === 'liq') {
+    const dP = Math.max(P_Pa - P_ATM, 0) + prop.rhol * G0 * h_m;
+    return { Q: 0.61 * A * Math.sqrt(2 * prop.rhol * dP), dP, Cd: 0.61 };
+  }
+  const g = prop.gam, M = prop.pm / 1000, rc = Math.pow(2 / (g + 1), g / (g - 1));
+  if (P_Pa <= P_ATM) return { Q: 0, Cd: 1, critico: false };
+  if (P_ATM / P_Pa <= rc)
+    return { Q: A * P_Pa * Math.sqrt(g * M / (R_GAS * T_K) * Math.pow(2 / (g + 1), (g + 1) / (g - 1))), Cd: 1, critico: true };
+  const r = P_ATM / P_Pa, rho = P_Pa * M / (R_GAS * T_K);
+  return { Q: A * Math.sqrt(2 * rho * P_Pa * g / (g - 1) * (Math.pow(r, 2 / g) - Math.pow(r, (g + 1) / g))), Cd: 1, critico: false };
+}
+const X_MAX_GL = 10000;   // limite di calcolo: validità dei coefficienti di Briggs (fino a 10 km)
+const itn = (v, n) => v.toFixed(n).replace('.', ',');
+function gasLiquefatto({ massa_kg, scenario = 'tot', d_mm = 10, h_m = 1, prop, soglie_ppm, stabilita = 'D', u_ms = 5, T_C = 20, sostanza = '', nota_soglie = '', contenitore = '' }) {
+  const Ta = T_C + 273.15, M = prop.pm / 1000;
+  const Psat = psatBar(prop.ps, T_C) * 1e5;
+  const rho_a = P_ATM * 0.028964 / (R_GAS * Ta);
+  // frazione di flash adiabatica (CCPS 1999): f = 1 - exp(-cp (T - Tb) / hv)
+  const flash = Ta > prop.Tb ? 1 - Math.exp(-prop.cpl * (Ta - prop.Tb) / (prop.hv * 1000)) : 0;
+  let Q, T_s, Ts_K, ipoSorg, fo = null;
+  if (scenario === 'tot') {
+    Q = massa_kg / 600; T_s = 600; Ts_K = Math.min(prop.Tb, Ta);
+    ipoSorg = `Rilascio dell'intero contenuto (${massa_kg} kg) come gas in 10 minuti: criterio dello scenario peggiore di 40 CFR 68.25(c)(1) (EPA, Risk Management Program) per i gas tossici liquefatti sotto pressione`;
+  } else {
+    fo = portataForo({ fase: scenario, d_mm, P_Pa: Psat, T_K: Ta, prop, h_m });
+    Q = fo.Q; if (!(Q > 0)) throw 'Con questa temperatura la pressione nel recipiente non supera quella atmosferica: rilascio in fase gassosa non calcolabile';
+    T_s = massa_kg / Q; Ts_K = scenario === 'liq' ? Math.min(prop.Tb, Ta) : Ta;
+    ipoSorg = scenario === 'liq'
+      ? `Foro di ${d_mm} mm in fase liquida: portata di Bernoulli con Cd 0,61 (CCPS 1999), Δp = pressione di vapore a ${T_C} °C meno la pressione atmosferica, più un battente di ${h_m} m; portata costante, cautelativa per il liquido saturo che vaporizza nel foro`
+      : `Foro di ${d_mm} mm in fase gassosa: efflusso isoentropico ${fo.critico ? 'critico (sonico)' : 'subcritico'} con Cd 1 (cautelativo), pressione iniziale = tensione di vapore a ${T_C} °C, costante (la pressione reale cala per il raffreddamento del liquido)`;
+  }
+  const durata = T_s;
+  // nube sorgente: vapore puro alla temperatura di ebollizione (fase liquida) o ambiente (fase gas)
+  const rho_s = P_ATM * M / (R_GAS * Ts_K), Tp = Ts_K / Ta;
+  const q0 = Q / rho_s, mNube = Math.min(massa_kg, Q * T_s);
+  const pl = bmPennacchio({ q0, rho_s, rho_a, u: u_ms, Tp });
+  const nu = bmNube({ V0: mNube / rho_s, rho_s, rho_a, u: u_ms, Tp });
+  // gaussiano passivo, sorgente puntiforme al suolo (Briggs rurale)
+  const sig = BRIGGS_RURALE[stabilita];
+  const ppmG = x => { const [sy, sz] = sig(x); return Q / (Math.PI * sy * sz * u_ms) / (P_ATM * M / (R_GAS * Ta)) * 1e6; };
+  // nube istantanea passiva (CCPS 1999, coefficienti puff): picco al suolo al centro della nube
+  const sigP = PUFF_CCPS[stabilita];
+  const ppmGi = x => { const [sy, sz] = sigP(x); return 2 * mNube / (Math.pow(2 * Math.PI, 1.5) * sy * sy * sz) / (P_ATM * M / (R_GAS * Ta)) * 1e6; };
+  const d = {}, gov = {}, avvisi = [];
+  // accoppiamento: Britter-McQuaid fino alla fine delle sue curve (rapporto 0,002), poi gaussiano passivo
+  // con sorgenti virtuali distinte per sigma_y (stessa larghezza della nube densa) e sigma_z (stessa massa e concentrazione)
+  const kgm3 = ppm => ppm * 1e-6 * P_ATM * M / (R_GAS * Ta);
+  const inv = (f, v) => bisect(x => v - f(x), 1e-3, 1e6);     // x tale che f(x) = v (f crescente)
+  const accPenn = () => {
+    const xt = pl.xLontano, C = kgm3(pl.cm(xt) * 1e6);
+    const sy0 = pl.LH(xt) * 2 / Math.sqrt(2 * Math.PI), sz0 = Q / (Math.PI * sy0 * C * u_ms);
+    const xy = inv(x => sig(x)[0], sy0), xz = inv(x => sig(x)[1], sz0);
+    const f = x => { if (x <= xt) return pl.cm(x) * 1e6; const sy = sig(x - xt + xy)[0], sz = sig(x - xt + xz)[1]; return Q / (Math.PI * sy * sz * u_ms) / kgm3(1); };
+    return { f, xt };
+  };
+  const accNube = () => {
+    const xt = nu.xLontano, C = kgm3(nu.cm(xt) * 1e6);
+    const sy0 = nu.Rn(xt) / Math.SQRT2, sz0 = 2 * mNube / (Math.pow(2 * Math.PI, 1.5) * sy0 * sy0 * C);
+    const xy = inv(x => sigP(x)[0], sy0), xz = inv(x => sigP(x)[1], sz0);
+    const f = x => { if (x <= xt) return nu.cm(x) * 1e6; const sy = sigP(x - xt + xy)[0], sz = sigP(x - xt + xz)[1]; return 2 * mNube / (Math.pow(2 * Math.PI, 1.5) * sy * sy * sz) / kgm3(1); };
+    return { f, xt };
+  };
+  const curve = [
+    ['pennacchio continuo', pl.denso ? accPenn() : { f: ppmG, xt: 0 }, pl.denso],
+    ['nube istantanea', nu.denso ? accNube() : { f: ppmGi, xt: 0 }, nu.denso]
+  ];
+  for (const [k, ppm] of Object.entries(soglie_ppm)) {
+    // un rilascio di durata finita non supera né il pennacchio stazionario né la nube istantanea: si prende il minore
+    const cs = curve.map(([n, c, den]) => [distanzaSoglia(c.f, ppm, 0.01, X_MAX_GL), n, den, c.xt]).filter(c => c[0] !== null);
+    if (!cs.length) { d[k] = null; gov[k] = '–'; continue; }
+    cs.sort((a, b) => a[0] - b[0]);
+    const [x, n, den, xt] = cs[0];
+    d[k] = r1(x);
+    if (!Number.isFinite(x)) { gov[k] = 'oltre 10 km'; continue; }
+    gov[k] = `${n}: ${den ? (x <= xt ? 'gas denso (Britter-McQuaid)' : 'gas denso, poi passivo oltre ' + Math.round(xt) + ' m') : 'gas passivo (gaussiano)'}`;
+  }
+  if (!pl.denso && !nu.denso) avvisi.push(rho_s < rho_a ? `Il vapore puro (${itn(rho_s, 2)} kg/m³) è più leggero dell'aria (${itn(rho_a, 2)} kg/m³): calcolo con il solo modello gaussiano passivo. Un rilascio bifase con aerosol (tipico dell'ammoniaca) può però formare una nube fredda più pesante dell'aria che resta al suolo.` : 'Criterio di Britter-McQuaid non soddisfatto: nube a comportamento passivo, calcolo con il modello gaussiano');
+  if (pl.fuoriCampo || nu.fuoriCampo) avvisi.push('Parametro α di Britter-McQuaid fuori dal campo −1…1 delle correlazioni: risultato del modello di gas denso indicativo');
+  if (Object.values(d).some(v => v !== null && !Number.isFinite(v))) avvisi.push('Una o più soglie sono superate oltre 10 km: oltre questa distanza i coefficienti di dispersione di Briggs non sono validati e l\'ipotesi di meteo costante per ore di trasporto non è realistica. Il valore è riportato come "> 10 km": valutare l\'estensione con la Tabella 3 ERG o con modelli specifici.');
+  if (scenario !== 'gas' && flash < 0.01) avvisi.push(`Alla temperatura di ${itn(T_C, 0)} °C il liquido è sotto o vicino alla temperatura di ebollizione (${itn(prop.Tb - 273.15, 1)} °C): non vaporizza per flash ma forma una pozza che evapora. Considerare tutto il rilascio in aria, come fa il calcolo, è molto cautelativo.`);
+  if (durata > 3600) avvisi.push(`Durata del rilascio stimata ${Math.round(durata / 60)} min: le soglie LC50 riferite a 30–60 min sono superate in durata, la zona I è sottostimata per esposizioni lunghe`);
+  return {
+    scenario: `Gas tossico liquefatto – meteo ${stabilita}${u_ms}`, sostanza,
+    distanze_m: d, oltre_m: X_MAX_GL,
+    zone_m: { I: d.LC50, II: d.IDLH, III: d.LOC },
+    dettagli: {
+      portata_kg_s: +Q.toFixed(3), durata_rilascio_min: +(durata / 60).toFixed(1), massa_kg: massa_kg,
+      tensione_vapore_bar: +(Psat / 1e5).toFixed(2), frazione_flash: +flash.toFixed(3),
+      densita_nube_kg_m3: +rho_s.toFixed(2), densita_aria_kg_m3: +rho_a.toFixed(2),
+      criterio_BM_continuo: +pl.criterio.toFixed(3), criterio_BM_istantaneo: +nu.criterio.toFixed(3),
+      ...Object.fromEntries(Object.keys(soglie_ppm).map(k => ['modello_' + k, gov[k]]))
+    },
+    ipotesi: [
+      contenitore,
+      ipoSorg,
+      `Frazione di flash ${itn(flash * 100, 1)}% (bilancio adiabatico CCPS 1999); si assume tutto il rilasciato in aria come vapore e aerosol, senza ricaduta di liquido al suolo (cautelativo)`,
+      `Nube alla sorgente: vapore puro a ${itn(Ts_K - 273.15, 1)} °C, densità ${itn(rho_s, 2)} kg/m³ contro ${itn(rho_a, 2)} kg/m³ dell'aria; correzione non isoterma di Britter-McQuaid`,
+      'Gas denso: correlazioni di Britter e McQuaid (Workbook on the Dispersion of Dense Gases, HSE 1988) nella forma di AIChE/CCPS (1999), terreno piano senza ostacoli, concentrazioni medie su 10 min, vento a 10 m; il modello non dipende dalla classe di stabilità',
+      `Durata finita del rilascio (${itn(durata / 60, 1)} min): la concentrazione non supera né quella del pennacchio stazionario con la stessa portata né quella della nube istantanea con la stessa massa; per ciascun modello si adotta il minore dei due risultati`,
+      `Oltre la fine delle curve di Britter-McQuaid (rapporto di concentrazione 0,002) la nube è trattata come passiva: modello gaussiano con sorgenti virtuali scelte in modo che, nel punto di passaggio, larghezza della nube e concentrazione siano quelle del modello di gas denso, classe ${stabilita}, vento ${u_ms} m/s; pennacchio con coefficienti di Briggs (rurale), nube istantanea con coefficienti CCPS 1999 (concentrazione di picco). Se il criterio di gas denso non è soddisfatto si usa solo il modello gaussiano con sorgente puntiforme al suolo`,
+      nota_soglie
+    ].filter(Boolean),
+    avvisi
+  };
+}
+function gasLiquefattoMeteo(param, meteo = METEO_PREDEFINITO) {
+  return meteo.map(m => {
+    const r = gasLiquefatto({ ...param, stabilita: m.stabilita, u_ms: m.u_ms, T_C: m.T_C ?? 20 });
+    r.avvisi = [...controllaMeteo(m), ...r.avvisi];
+    r.meteo = { stabilita: m.stabilita, vento_ms: m.u_ms, temperatura_C: m.T_C ?? 20, origine: meteo === METEO_PREDEFINITO ? 'predefinito' : 'inserito dall\'utente' };
+    return r;
+  });
+}
+
 // ============ 5. METEO ============
 // Valori predefiniti: D5 e F2; l'utente può inserire vento, temperatura e stabilità reali.
 const METEO_PREDEFINITO = [ { stabilita: 'D', u_ms: 5, T_C: 20 }, { stabilita: 'F', u_ms: 2, T_C: 20 } ];
@@ -217,6 +412,6 @@ function gaussianoMeteo(param, meteo = METEO_PREDEFINITO) {
   });
 }
 
-const api = { SOGLIE, METEO_PREDEFINITO, poolFire, bleve, gaussiano, gaussianoMeteo, controllaMeteo, tnt, kingeryBulmash_bar, kinneyGraham_bar, fattoreVistaCilindro, evaporazioneEPA };
+const api = { SOGLIE, METEO_PREDEFINITO, poolFire, bleve, gaussiano, gaussianoMeteo, controllaMeteo, tnt, kingeryBulmash_bar, kinneyGraham_bar, fattoreVistaCilindro, evaporazioneEPA, gasLiquefatto, gasLiquefattoMeteo, bmPennacchio, bmNube, portataForo, psatBar };
 if (typeof module !== 'undefined') module.exports = api;
 if (typeof window !== 'undefined') window.MotoreAree = api;

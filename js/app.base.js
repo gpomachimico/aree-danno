@@ -13,7 +13,7 @@ function mostraRicerca() {
   box.querySelectorAll('button').forEach(b => b.onclick = () => { $('onu').value = b.dataset.u; box.innerHTML = ''; $('onu').dispatchEvent(new Event('input')); });
 }
 
-const NOMI_MOD = { PF: 'Pool fire', BL: 'BLEVE / fireball', GA: 'Dispersione tossica', TNT: 'Esplosione (TNT equivalente)', ERG: 'Solo distanze ERG', NOS: 'Nome tecnico necessario' };
+const NOMI_MOD = { PF: 'Pool fire', BL: 'BLEVE / fireball', GA: 'Dispersione tossica', GL: 'Gas tossico liquefatto', TNT: 'Esplosione (TNT equivalente)', ERG: 'Solo distanze ERG', NOS: 'Nome tecnico necessario' };
 
 $('onu').addEventListener('input', () => {
   mostraRicerca();
@@ -163,6 +163,8 @@ function buildFields() {
       <div class="row">${f('vol', 'Volume rilasciato (L)', opzioniImbLiquidi().vol)}${f('conc', 'Concentrazione HCl (%)', 33, 'min="30" max="38"')}</div>
       <div class="row">${f('pv', 'Tensione di vapore (kPa) – vuoto = da tabella', '', 'placeholder="da tabella"')}${f('area', 'Area bacino (m²)', '', 'placeholder="non confinato"')}</div>
       <p class="small">Soglie: LC50 30 min ${p.LC50} ppm · IDLH ${p.IDLH} ppm · LOC ${p.LOC} ppm</p>`;
+  } else if (m === 'GL') {
+    h = campiGL(p);
   } else if (cur.classe.startsWith('1.')) {
     h = explFields(m === 'TNT', p);
   } else {
@@ -171,12 +173,38 @@ function buildFields() {
   }
   $('fields').innerHTML = h;
   $('inbox').classList.remove('hide');
-  $('meteobox').classList.toggle('hide', m !== 'GA');
+  $('meteobox').classList.toggle('hide', m !== 'GA' && m !== 'GL');
   if (p.fonte && m !== 'BL') $('fields').insertAdjacentHTML('beforeend', `<p class="small">Fonti dei dati: ${p.fonte}.</p>`);
   $('calc').classList.remove('hide');
   bindExtra();
   const imb = $('imb');
   if (imb) imb.addEventListener('change', () => { const v = +imb.value; if (v) { if ($('vol')) $('vol').value = v; if ($('massa')) $('massa').value = v; } });
+  if (m === 'GL') bindGL();
+}
+
+// ---------- gas tossici liquefatti (V2, gruppo 1) ----------
+function contenitoriGL() {
+  const im = cur.im || 'G', op = [];
+  if (im.includes('G')) op.push(['bomb', 'Bombola', 50, 10], ['ton', 'Recipiente a pressione da 1 t (fusto a pressione)', 1000, 10]);
+  if (im.includes('T')) op.push(['cist', 'Cisterna / tank-container', 20000, 25]);
+  op.push(['altro', 'Altro recipiente a pressione', 1000, 10]);
+  return op;
+}
+function campiGL(p) {
+  const op = contenitoriGL(), def = op.find(o => o[0] === 'ton') || op[0];
+  return `<label>Recipiente</label><select id="glc">${op.map(([v, t]) => `<option value="${v}" ${v === def[0] ? 'selected' : ''}>${t}</option>`).join('')}</select>
+    <label>Scenario di rilascio</label><select id="gls">
+      <option value="tot">Rilascio totale in 10 minuti (rottura del recipiente)</option>
+      <option value="liq">Perdita da foro in fase liquida (foro sotto il pelo del liquido)</option>
+      <option value="gas">Perdita da foro in fase gassosa (valvola o foro in alto)</option></select>
+    <div class="row">${f('massa', 'Contenuto del recipiente (kg)', def[2])}<div id="glfw">${f('dforo', 'Diametro del foro (mm)', def[3])}</div></div>
+    <p class="small">Sostanza di calcolo: ${p.nome}. Soglie: LC50 ${p.LC50} ppm (ratto, ${p.LC50_t}) · IDLH ${p.IDLH} ppm · LOC ${p.LOC} ppm. La temperatura del contenuto è quella dell'aria indicata nel meteo.</p>`;
+}
+function bindGL() {
+  const c = $('glc'), s = $('gls'), w = $('glfw');
+  const agg = () => { w.style.visibility = s.value === 'tot' ? 'hidden' : 'visible'; };
+  c.addEventListener('change', () => { const o = contenitoriGL().find(x => x[0] === c.value); if (o) { $('massa').value = o[2]; $('dforo').value = o[3]; } });
+  s.addEventListener('change', agg); agg();
 }
 
 $('mPre').onclick = () => { meteoUser = false; $('mPre').classList.add('on'); $('mUser').classList.remove('on'); $('meteoUser').classList.add('hide'); };
@@ -214,6 +242,17 @@ $('calc').onclick = () => {
       risultati = M.gaussianoMeteo({ volume_m3: vol / 1000, densita_soluzione: dens, frazione_tossico: c / 100, pm: p.pm, Pv_kPa: +pv.toFixed(2), Pv_rif_T_C: pvU ? undefined : 20, area_m2: num('area'),
         soglie_ppm: { LC50: p.LC50, IDLH: p.IDLH, LOC: p.LOC }, sostanza: `${sost} ${c}%`,
         nota_soglie: `Soglie: LC50 30 min = ${p.LC50} ppm (LC50 ratto 1 h senza correzione temporale, scelta cautelativa); IDLH ${p.IDLH} ppm (NIOSH); LOC = IDLH/10 = ${p.LOC} ppm. Concentrazione ${c}%, densità ${dens.toFixed(3)}, tensione di vapore ${pv.toFixed(2)} kPa ${pvU ? '(inserita dall\'utente)' : '(International Critical Tables, 20 °C, tensione totale: cautelativo)'}` }, meteo);
+    } else if (m === 'GL') {
+      const ms = num('massa'); if (!ms || ms <= 0) throw 'Inserire il contenuto del recipiente';
+      const sc = $('gls').value, dmm = num('dforo') || 10;
+      if (sc !== 'tot' && (dmm <= 0 || dmm > 300)) throw 'Diametro del foro fuori campo (1–300 mm)';
+      const nomeC = { bomb: 'bombola', ton: 'recipiente a pressione da 1 t', cist: 'cisterna / tank-container', altro: 'recipiente a pressione' }[$('glc').value];
+      const meteo = meteoUser ? [{ stabilita: $('stab').value, u_ms: num('vento') || 1, T_C: num('temp') ?? 20 }] : M.METEO_PREDEFINITO;
+      risultati = M.gasLiquefattoMeteo({ massa_kg: ms, scenario: sc, d_mm: dmm, h_m: $('glc').value === 'cist' ? 2 : 1, prop: p,
+        soglie_ppm: { LC50: p.LC50, IDLH: p.IDLH, LOC: p.LOC }, sostanza: `${sost} (${p.nome})`,
+        contenitore: `Recipiente: ${nomeC}, contenuto ${ms} kg di ${p.nome} liquefatto sotto pressione alla temperatura dell'aria`,
+        nota_soglie: `Soglie: LC50 = ${p.LC50} ppm (ratto, ${p.LC50_t}, senza correzione temporale); IDLH ${p.IDLH} ppm (NIOSH); LOC = IDLH/10 = ${p.LOC} ppm. Fonti: ${p.fonte}` }, meteo);
+      if (p.avviso) risultati.forEach(r => r.avvisi = [p.avviso, ...(r.avvisi || [])]);
     } else if (m === 'TNT') {
       const { nem, origine } = leggiNEM();
       const fatt = num('fatt') || p.fattore, imbx = $('imbx').value;
@@ -301,7 +340,7 @@ function tipoSpandimento(imbe, q) {
 const notaSolidi = () => '';
 function isoNumero(g) { return typeof g.isolamento_m === 'number' ? g.isolamento_m : (statoSolido() ? 25 : 50); }
 const isoTxt = g => typeof g.isolamento_m === 'number' ? g.isolamento_m + ' m' : String(g.isolamento_m).replace(/(\d+) liquidi/, '$1 m liquidi').replace(/(\d+) solidi/, '$1 m solidi');
-const fmt = v => v === null ? 'non raggiunta' : !Number.isFinite(v) ? '> 50 km' : v + ' m';
+const fmt = v => v === null ? 'non raggiunta' : !Number.isFinite(v) ? `> ${((risultati[tabSel] && risultati[tabSel].oltre_m) || 50000) / 1000} km` : v + ' m';
 
 function mostra() {
   $('out').style.display = 'block';
