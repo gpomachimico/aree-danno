@@ -4,22 +4,38 @@ const $ = id => document.getElementById(id);
 const M = window.MotoreAree;
 let cur = null, risultati = [], tabSel = 0, meteoUser = false;
 
-// elenco ONU
-$('onulist').innerHTML = Object.entries(DATA.db).sort().map(([u, d]) => `<option value="${u}">${u} – ${d.psn}</option>`).join('');
+// ricerca per numero ONU o per nome (tutte le voci IMDG 42-24)
+function mostraRicerca() {
+  const q = $('onu').value, box = $('onures');
+  if (/^\d{4}$/.test(q.trim()) && DATA.db[q.trim()]) { box.innerHTML = ''; return; }
+  const l = q.trim().length >= (/^\d/.test(q.trim()) ? 1 : 3) ? cercaVoci(q) : [];
+  box.innerHTML = l.map(([u, n]) => `<button type="button" class="res" data-u="${u}"><b>${u}</b> ${n}</button>`).join('') + (l.length === 40 ? '<p class="small">Mostrate le prime 40: affina la ricerca.</p>' : '');
+  box.querySelectorAll('button').forEach(b => b.onclick = () => { $('onu').value = b.dataset.u; box.innerHTML = ''; $('onu').dispatchEvent(new Event('input')); });
+}
 
 const NOMI_MOD = { PF: 'Pool fire', BL: 'BLEVE / fireball', GA: 'Dispersione tossica', TNT: 'Esplosione (TNT equivalente)', ERG: 'Solo distanze ERG', NOS: 'Nome tecnico necessario' };
 
 $('onu').addEventListener('input', () => {
-  const u = $('onu').value.trim().slice(0, 4);
+  mostraRicerca();
+  const q = $('onu').value.trim(), u = /^\d{4}$/.test(q) ? q : '';
   const d = DATA.db[u];
   $('out').style.display = 'none';
-  if (!d) { $('idbox').innerHTML = u.length === 4 ? '<div class="warn">Numero ONU non presente nella banca dati provvisoria (40 voci).</div>' : ''; ['inbox', 'meteobox', 'calc'].forEach(x => $(x).classList.add('hide')); cur = null; return; }
+  if (!d) { $('idbox').innerHTML = /^\d{4}$/.test(q) ? '<div class="warn">Numero ONU non presente nella Dangerous Goods List dell\'IMDG Code 42-24.</div>' : ''; ['inbox', 'meteobox', 'calc'].forEach(x => $(x).classList.add('hide')); cur = null; return; }
   cur = { u, ...d };
-  const g = DATA.guide[d.guida];
-  $('idbox').innerHTML = `<div class="id"><b>UN ${u}</b> – ${d.psn}<br>
-    <span class="tag">Classe ${d.classe}</span><span class="tag">EmS ${d.ems}</span><span class="tag">ERG Guida ${d.guida}</span><span class="tag">${NOMI_MOD[d.modello]}</span></div>`;
-  buildFields();
+  mostraVoce(0);
 });
+function mostraVoce(iv) {
+  const d = DATA.db[cur.u], u = cur.u;
+  if (d.varianti && d.varianti[iv] && (d.automatica || iv > 0)) { const v = d.varianti[iv]; Object.assign(cur, { psn: v.n, classe: v.c, ems: v.e || '–', pg: v.pg, sub: v.s || '', mp: !!v.p, sn: v.sn || '' }); }
+  cur.iv = iv;
+  const varSel = d.varianti && d.varianti.length > 1 ? `<label for="varSel">Voci della DGL per questo numero (${d.varianti.length})</label><select id="varSel">${d.varianti.map((v, i) => `<option value="${i}" ${i === iv ? 'selected' : ''}>${v.pg !== '–' ? 'GI ' + v.pg + ' – ' : ''}${v.n.slice(0, 80)}${v.e && v.e !== d.varianti[0].e ? ' (' + v.e + ')' : ''}</option>`).join('')}</select>` : '';
+  const g = DATA.guide[cur.guida];
+  $('idbox').innerHTML = `<div class="id"><b>UN ${u}</b> – ${cur.psn}<br>
+    <span class="tag">Classe ${cur.classe}${cur.sub ? ' (' + cur.sub + ')' : ''}</span>${cur.pg && cur.pg !== '–' ? `<span class="tag">GI ${cur.pg}</span>` : ''}<span class="tag">EmS ${cur.ems}</span><span class="tag">ERG Guida ${cur.guida}${d.guide && d.guide.length > 1 ? ' (anche ' + d.guide.slice(1).join(', ') + ')' : ''}</span>${cur.mp ? '<span class="tag">Inquinante marino</span>' : ''}${cur.tih ? '<span class="tag tih">TIH – Tabella 1</span>' : ''}<span class="tag">${NOMI_MOD[cur.modello]}</span>
+    ${cur.sn ? `<br><span class="small">Rischio sussidiario: ${cur.sn} (IMDG)</span>` : ''}${cur.ems === '*' ? '<br><span class="small">EmS: la DGL rimanda alla nota (*) della colonna 15.</span>' : ''}${/P$/.test(cur.guida) ? '<br><span class="small">Guida con "P": rischio di polimerizzazione violenta se riscaldato o contaminato.</span>' : ''}${d.guidaRegola ? '<br><span class="small">Esplosivi: l\'ERG non li elenca per numero ONU; guida assegnata dalla divisione (112 per 1.1, 1.2, 1.3, 1.5; 114 per 1.4, 1.6).</span>' : ''}${d.automatica ? '<br><span class="small">Dati da estrazione automatica (IMDG 42-24, ERG 2024): voce non ancora verificata a mano.</span>' : ''}</div>${varSel}`;
+  if ($('varSel')) $('varSel').onchange = e => mostraVoce(+e.target.value);
+  buildFields();
+}
 
 function f(id, lab, val, extra = '') { return `<div><label for="${id}">${lab}</label><input id="${id}" type="number" inputmode="decimal" step="any" value="${val}" ${extra}></div>`; }
 
@@ -36,7 +52,7 @@ function explFields(conCalcolo, p) {
     <div id="boxCol" class="hide"><div class="row">${f('ncolli', 'Numero di colli', 10)}${f('nemcollo', 'NEM per collo (kg)', 10)}</div>
       <p class="small">NEM per collo: dal documento di classificazione o dalla marcatura del collo.</p></div>
     ${conCalcolo ? `<div class="row">${f('fatt', 'Fattore TNT', p.fattore)}<div></div></div><p class="small">Fattore: ${p.fonte}.</p>` :
-      `<p class="small">Divisione ${cur.classe}: nessuna esplosione di massa; nella prima versione si applicano le distanze ERG.</p>`}
+      (/^1\.[15]/.test(cur.classe) ? `<p class="small">Divisione ${cur.classe} (esplosione di massa): fattore TNT non ancora verificato per questa voce, quindi l'app applica solo le distanze ERG. Il calcolo della sovrappressione è disponibile per le voci con fattore verificato (es. UN 0209, 0483, 0484, 0221, 0286).</p>` : `<p class="small">Divisione ${cur.classe}: nessuna esplosione di massa; nella prima versione si applicano le distanze ERG.</p>`)}
     ${chk('parte', 'Coinvolta una parte consistente del carico, senza incendio (ERG "Large Spill")')}
     ${chk('fuoco', 'Incendio in atto o che può raggiungere il carico')}
     <p class="small">L'ERG non lega le distanze per gli esplosivi alla massa netta: la scelta tra misura immediata, "Large Spill" e incendio dipende dalla situazione valutata sul posto.</p>`;
@@ -47,12 +63,13 @@ function ergFields() {
       <option value="collo">Collo / bombola singola</option><option value="fusto">Fusto (fino a 200 L)</option>
       <option value="ibc" selected>IBC 1000 L</option><option value="cist">Cisterna / tank-container</option><option value="cont">Container con più colli</option><option value="altro">Altro</option></select>
     <div class="row">${f('qta', `Quantità coinvolta (${solido ? 'kg' : 'L'})`, 1000)}<div></div></div>
-    ${chk('fuoco', 'Incendio in atto o probabile')}`;
+    ${chk('fuoco', 'Incendio in atto o probabile')}${cur.tih ? campiTIH() : ''}`;
 }
 function bindExtra() {
   const a = $('nemTot'), b = $('nemCol');
   if (a) { a.onclick = () => { a.classList.add('on'); b.classList.remove('on'); $('boxTot').classList.remove('hide'); $('boxCol').classList.add('hide'); };
            b.onclick = () => { b.classList.add('on'); a.classList.remove('on'); $('boxCol').classList.remove('hide'); $('boxTot').classList.add('hide'); }; }
+  if ($('t1sel')) { aggiornaT1sel(); if ($('inAcqua')) $('inAcqua').onchange = aggiornaT1sel; }
   const ie = $('imbe');
   if (ie) ie.onchange = () => { const v = { collo: 50, fusto: 200, ibc: 1000, cist: 24000, cont: 10000 }[ie.value]; if (v) $('qta').value = v; };
 }
@@ -169,6 +186,7 @@ function casoERGesplosivi(imbx) {
 }
 function casoERGgenerico(imbe, q) {
   const g = DATA.guide[cur.guida], fuoco = $('fuoco') && $('fuoco').checked;
+  if (cur.tih && !(fuoco && g.incendio_m && imbe !== 'collo' && imbe !== 'fusto')) { const c = casoTIH(imbe, q); if (c) return c; }
   const isoNum = typeof g.isolamento_m === 'number' ? g.isolamento_m : (/SOLID|ASBESTOS/.test(cur.psn) ? 25 : 50);
   if (fuoco && g.incendio_m && imbe !== 'collo' && imbe !== 'fusto')
     return { chiave: 'incendio', dist: g.incendio_m, etichetta: 'Incendio (cisterna o carico)', motivo: 'Incendio con cisterna, IBC o carico coinvolti: distanza ERG per incendio' };
@@ -201,7 +219,8 @@ function mostra() {
     for (const [k, v] of Object.entries(r.dettagli || {})) t += `<tr><td>${k.replace(/_/g, ' ')}</td><td class="n">${v}</td></tr>`;
   } else {
     const c = r.ergCaso;
-    t += `<tr><td><span class="sw" style="background:var(--z2)"></span><b>Distanza da applicare</b><br><span class="small">${c.etichetta}</span></td><td class="n">${c.dist} m${c.dir ? ' ' + c.dir : ''}</td></tr>`;
+    t += `<tr><td><span class="sw" style="background:var(--z2)"></span><b>Distanza da applicare</b><br><span class="small">${c.etichetta}</span></td><td class="n">${c.dist} m${c.prot_km ? '<br><span class="small">in tutte le direzioni</span>' : (c.dir ? ' ' + c.dir : '')}</td></tr>`;
+    if (c.prot_km) t += `<tr><td><span class="sw" style="background:var(--z3)"></span><b>Poi proteggere sottovento</b><br><span class="small">${c.per === 'notte' ? 'di notte' : 'di giorno'}</span></td><td class="n">${c.prot_km}${c.plus ? '+' : ''} km</td></tr>`;
     t += `<tr><td colspan="2" class="small">${c.motivo}</td></tr>`;
   }
   $('tab').innerHTML = t + '</table>';
@@ -226,6 +245,7 @@ function ergRighe(g, guida) {
     return r;
   }
   return [
+    ...(cur.tih ? righeT1() : []),
     ['Isolamento iniziale (misura immediata)', isoTxt(g)],
     ['Grande spandimento', g.evac_grande_m ? `${g.evac_grande_m} m ${g.evac_grande_dir}` : (g.evac_grande_dir || '–')],
     ['Incendio (cisterna o carico)', g.incendio_m ? g.incendio_m + ' m' : '–']
@@ -239,7 +259,10 @@ function ergHTML(g, r) {
   else if (g.evac_grande_m)
     note = `<p class="small">"Grande spandimento": l'ERG definisce piccoli i rilasci fino a 208 L e grandi quelli superiori (definizione riportata per la Tabella 1).</p>`;
   if (g.incendio_nota && !(+cur.guida === 112 || +cur.guida === 114)) note += `<p class="small">${g.incendio_nota}</p>`;
-  return `<table><tr><td>Guida ${cur.guida}</td><td class="v small">${g.titolo}</td></tr>${rows}</table>${note}${cur.modello === 'BL' ? bleveERG(r) : ''}`;
+  if (cur.tih) note += `<p class="small">Tabella 1: piccolo spandimento fino a 208 L (collo piccolo o piccola perdita da un grande imballaggio); grande spandimento oltre 208 L (grande imballaggio o più colli piccoli). La distanza di protezione è sottovento; nello schema e sulla mappa è disegnata come cerchio (inviluppo cautelativo per direzione del vento incerta). "+": la distanza può essere maggiore in certe condizioni atmosferiche.</p>`;
+  if (g.automatica) note += `<p class="small">Valori letti automaticamente dalla guida ERG.</p>`;
+  if (g.testo_en) note += `<details class="small"><summary>Testo originale ERG (Evacuation)</summary><p>${g.testo_en}</p></details>`;
+  return `<table><tr><td>Guida ${cur.guida}</td><td class="v small">${g.titolo_it || g.titolo}</td></tr>${rows}</table>${note}${cur.modello === 'BL' ? bleveERG(r) : ''}`;
 }
 
 function bleveERG(r) {
@@ -257,6 +280,7 @@ function disegna(r, g) {
     if (Number.isFinite(r.zone_m.I) && r.zone_m.I) cer.push([r.zone_m.I, 'var(--z1)', 'I']);
   }
   const iso = typeof g.isolamento_m === 'number' ? g.isolamento_m : 50;
+  if (r.soloERG && r.ergCaso && r.ergCaso.prot_km) cer.push([r.ergCaso.prot_km * 1000, 'var(--z3)', 'PROT']);
   if (r.soloERG && r.ergCaso && r.ergCaso.dist !== iso) cer.push([r.ergCaso.dist, 'var(--z2)', 'ERG']);
   const ergApp = !r.soloERG && r.ergCaso ? r.ergCaso.dist : 0;
   const rmax = Math.max(iso, ergApp, ...cer.map(c => c[0]));
@@ -271,19 +295,19 @@ function disegna(r, g) {
   s += `<line x1="12" y1="${W - 14}" x2="${12 + nice * sc}" y2="${W - 14}" stroke="var(--ink)" stroke-width="2"/><text x="12" y="${W - 20}" font-size="11" fill="var(--ink)">${nice} m</text>`;
   if (r.meteo) s += `<text x="${W - 12}" y="18" font-size="11" text-anchor="end" fill="var(--ink)">vento → sottovento</text>`;
   $('graf').innerHTML = s + '</svg>';
-  $('grafnote').textContent = (r.meteo ? 'Distanze sottovento rappresentate come cerchi (inviluppo cautelativo per direzione del vento incerta). ' : '') + 'Tratteggio: isolamento iniziale ERG ' + iso + ' m. ' + (ergApp ? 'Puntinato: distanza ERG applicabile (' + r.ergCaso.etichetta + ') ' + ergApp + ' m. ' : '') + (r.soloERG ? 'Area colorata: distanza ERG da applicare. ' : '') + (cer.length < 3 && !r.soloERG ? 'Le zone non raggiunte non sono disegnate.' : '');
+  $('grafnote').textContent = (r.meteo ? 'Distanze sottovento rappresentate come cerchi (inviluppo cautelativo per direzione del vento incerta). ' : '') + 'Tratteggio: isolamento iniziale ERG ' + iso + ' m. ' + (ergApp ? 'Puntinato: distanza ERG applicabile (' + r.ergCaso.etichetta + ') ' + ergApp + ' m. ' : '') + (r.soloERG ? 'Area colorata: distanza ERG da applicare' + (r.ergCaso && r.ergCaso.prot_km ? ` (arancio: isolamento ${r.ergCaso.dist} m; giallo: protezione sottovento ${r.ergCaso.prot_km} km, disegnata come cerchio). ` : '. ') : '') + (cer.length < 3 && !r.soloERG ? 'Le zone non raggiunte non sono disegnate.' : '');
 }
 
 $('copy').onclick = async () => {
   const r = risultati[tabSel], g = DATA.guide[cur.guida];
   const oggi = new Date().toLocaleString('it-IT');
-  let t = `STIMA AREE DI DANNO – parere tecnico (non atto amministrativo)\n${oggi}\n\n${r.sostanza}\nClasse ${cur.classe} · EmS ${cur.ems} · ERG Guida ${cur.guida}\nScenario: ${r.scenario}\n\n`;
+  let t = `STIMA AREE DI DANNO – parere tecnico (non atto amministrativo)\n${oggi}\n\n${r.sostanza}\n${classif()} · ERG Guida ${cur.guida}\nScenario: ${r.scenario}\n\n`;
   if (!r.soloERG) { t += `Zona I (elevata letalità): ${fmt(r.zone_m.I)}\nZona II (lesioni irreversibili): ${fmt(r.zone_m.II)}\nZona III (lesioni reversibili): ${fmt(r.zone_m.III)}\n\nSoglie D.M. 9/5/2001:\n`; for (const [k, v] of Object.entries(r.distanze_m)) t += `- ${k.replace(/_/g, ' ')}: ${fmt(v)}\n`; }
   if (r.ergCaso) t += `\nDistanza ERG da applicare: ${r.ergCaso.dist} m${r.ergCaso.dir ? ' ' + r.ergCaso.dir : ''} – ${r.ergCaso.etichetta} (${r.ergCaso.motivo})\n`;
   t += `\nIpotesi:\n${r.ipotesi.map(x => '- ' + x).join('\n')}\n`;
   if (r.meteo) t += `- Meteo ${r.meteo.origine}: ${r.meteo.stabilita}, ${r.meteo.vento_ms} m/s, ${r.meteo.temperatura_C} °C\n`;
   if (r.avvisi && r.avvisi.length) t += `\nAvvisi:\n${r.avvisi.map(x => '- ' + x).join('\n')}\n`;
-  t += `\nERG 2024 Guida ${cur.guida} (${g.titolo}):\n${ergRighe(g, cur.guida).map(([a, b]) => '- ' + a + ': ' + b).join('\n')}\n\nRiferimenti: D.M. 9/5/2001 Tab. 2; Linee guida PEE (Dir. 7/12/2022); IMDG Code 42-24; ERG 2024.\n`;
+  t += `\nERG 2024 Guida ${cur.guida} (${g.titolo_it || g.titolo}):\n${ergRighe(g, cur.guida).map(([a, b]) => '- ' + a + ': ' + b).join('\n')}\n\nRiferimenti: D.M. 9/5/2001 Tab. 2; Linee guida PEE (Dir. 7/12/2022); IMDG Code 42-24; ERG 2024.\n`;
   try { await navigator.clipboard.writeText(t); $('copymsg').textContent = 'Report copiato negli appunti.'; }
   catch (e) { $('copymsg').innerHTML = 'Copia non consentita: seleziona il testo qui sotto.<textarea style="width:100%;height:220px;margin-top:6px;font-size:12px">' + t.replace(/</g, '&lt;') + '</textarea>'; }
 };

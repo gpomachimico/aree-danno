@@ -1,11 +1,13 @@
-# Aree di danno e di sicurezza – app v1.0-beta
+# Aree di danno e di sicurezza – app v1.1-beta
 
 Web app installabile (PWA) per telefono e tablet. Stime di supporto tecnico (parere tecnico), non atti amministrativi.
 
 ## Contenuto
 - `index.html` – l'app
 - `js/engine.js` – motore di calcolo (pool fire, BLEVE, dispersione gaussiana, TNT equivalente)
-- `js/data.js` – banca dati (40 numeri ONU, IMDG 42-24, ERG 2024)
+- `js/data.js` – 40 voci verificate a mano, con i dati per i modelli di calcolo
+- `js/onu.js` – banca dati estesa generata da `tools/`: tutte le 2347 voci ONU della Dangerous Goods List IMDG 42-24 (2860 righe) e l'ERG 2024 (62 guide, Tabelle 1, 2 e 3)
+- `js/app.onu.js` – ricerca per numero o nome, Tabella 1 (TIH) e Tabella 3
 - `js/app.base.js`, `js/app.extra.js` – interfaccia, mappa, GPS, report
 - `vendor/` – Leaflet 1.9.4 (mappa), incluso per l'uso offline
 - `sw.js`, `manifest.webmanifest`, `icons/` – installazione e funzionamento offline
