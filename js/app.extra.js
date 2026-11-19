@@ -7,23 +7,33 @@ const FIRMATARIO_DEFAULT = { nome: 'Dott. Gianluca POMA', qualifica: 'Consulente
 function leggiImpostazioni() {
   let s = {};
   try { s = JSON.parse(localStorage.getItem('impostazioni') || '{}'); } catch (e) { s = {}; }
-  return { nome: s.nome || FIRMATARIO_DEFAULT.nome, qualifica: s.qualifica || FIRMATARIO_DEFAULT.qualifica };
+  return { nome: s.nome || FIRMATARIO_DEFAULT.nome, qualifica: s.qualifica || FIRMATARIO_DEFAULT.qualifica, carta: s.carta !== false };
 }
 function salvaImpostazioni(o) { try { localStorage.setItem('impostazioni', JSON.stringify(o)); return true; } catch (e) { return false; } }
 (function initImpostazioni() {
   const s = leggiImpostazioni();
-  $('sNome').value = s.nome; $('sQual').value = s.qualifica;
+  $('sNome').value = s.nome; $('sQual').value = s.qualifica; $('sCarta').checked = s.carta;
   $('btnSet').onclick = () => $('setbox').classList.toggle('hide');
   $('sSave').onclick = () => {
-    const ok = salvaImpostazioni({ nome: $('sNome').value.trim(), qualifica: $('sQual').value.trim() });
+    const ok = salvaImpostazioni({ nome: $('sNome').value.trim(), qualifica: $('sQual').value.trim(), carta: $('sCarta').checked });
     $('setbox').classList.add('hide');
     if (!ok) alertBox('Impossibile salvare le impostazioni su questo dispositivo.');
   };
 })();
 
-// carta intestata: se presente il file img/carta-intestata.png viene usato come intestazione del report
-let cartaIntestata = null;
-fetch('img/carta-intestata.png', { method: 'HEAD' }).then(r => { if (r.ok) cartaIntestata = 'img/carta-intestata.png'; }).catch(() => {});
+// carta intestata dello Studio (dal modello Word fornito da Luca il 19/11/2026)
+const STUDIO = {
+  nome: 'Studio Professionale Associato Consulenti Chimici di Porto',
+  soci: 'Dr. Poma Gianluca e Dr. Mameli Pier Luca',
+  sede: 'Sede legale: Viale Diaz, 40 – 09125 Cagliari',
+  fisc: 'Tel/fax +39 070303350 C.F./P. Iva 03231430921',
+  sx: ['Dott. Gianluca POMA', 'Mobile: +39 333-5780697'],
+  dx: ['Dott. Pier Luca MAMELI', 'Mobile: +39 393-9936321']
+};
+const cartaHTML = () => `<div class="carta"><img src="img/logo-scp.jpg" alt="Servizio Chimico di Porto – Cagliari"><div class="carta-t">
+  <div class="c1">${STUDIO.nome}</div><div class="c2">${STUDIO.soci}</div><div class="c3">${STUDIO.sede}<br>${STUDIO.fisc}</div>
+  <div class="c4"><span>${STUDIO.sx.join('<br>')}</span><span class="dx">${STUDIO.dx.join('<br>')}</span></div></div></div>`;
+const cartaTesto = () => `${STUDIO.nome}\n${STUDIO.soci}\n${STUDIO.sede} – ${STUDIO.fisc}\n${STUDIO.sx.join(' – ')} | ${STUDIO.dx.join(' – ')}\n${'-'.repeat(60)}\n\n`;
 
 // data e ora dell'evento: predefinite all'apertura, modificabili
 (function initData() {
@@ -145,7 +155,7 @@ function datiReport() {
 }
 function testoReport() {
   const { r, g, s, quando, luogo, coord } = datiReport();
-  let t = `PARERE TECNICO – STIMA DELLE AREE DI DANNO E DI SICUREZZA\nData: ${quando}\nLuogo: ${luogo}\nCoordinate: ${coord}\n\n${r.sostanza}\n${classif()} · ERG Guida ${cur.guida}\nScenario: ${r.scenario}\n\n`;
+  let t = (s.carta ? cartaTesto() : '') + `PARERE TECNICO – STIMA DELLE AREE DI DANNO E DI SICUREZZA\nData: ${quando}\nLuogo: ${luogo}\nCoordinate: ${coord}\n\n${r.sostanza}\n${classif()} · ERG Guida ${cur.guida}\nScenario: ${r.scenario}\n\n`;
   if (!r.soloERG) {
     t += `ZONE\nZona I (sicuro impatto): ${fmt(r.zone_m.I)}\nZona II (danno): ${fmt(r.zone_m.II)}\nZona III (attenzione): ${fmt(r.zone_m.III)}\n`;
     const L = legendaSoglie(r);
@@ -174,7 +184,7 @@ $('copy').onclick = async () => {
 const esc = x => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;');
 $('print').onclick = () => {
   const { r, g, s, quando, luogo, coord } = datiReport();
-  let h = cartaIntestata ? `<img class="carta" src="${cartaIntestata}" alt="">` : `<div class="carta-spazio"></div>`;
+  let h = s.carta ? cartaHTML() : '';
   h += `<div class="intest"><h1>Parere tecnico – Stima delle aree di danno e di sicurezza</h1>
     <table class="dati"><tr><td>Data</td><td>${esc(quando)}</td></tr><tr><td>Luogo</td><td>${esc(luogo)}</td></tr><tr><td>Coordinate</td><td>${esc(coord)}</td></tr></table></div>`;
   h += `<h2>Merce e scenario</h2><table><tr><td>Merce</td><td>${esc(r.sostanza)}</td></tr><tr><td>Classificazione</td><td>${esc(classif())} · ERG Guida ${esc(cur.guida)}</td></tr><tr><td>Scenario</td><td>${esc(r.scenario)}</td></tr>${r.meteo ? `<tr><td>Meteo</td><td>${r.meteo.stabilita}, ${r.meteo.vento_ms} m/s, ${r.meteo.temperatura_C} °C (${r.meteo.origine})</td></tr>` : ''}</table>`;

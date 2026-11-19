@@ -41,3 +41,5 @@ ul.ip{margin:0;padding-left:18px;font-size:13.5px;color:var(--mute)}ul.ip li{mar
 details.small summary{cursor:pointer;margin-top:6px}
 table.t3 th,table.t3 td{padding:4px 3px;font-size:12px}
 table.t3 th{text-align:center}
+label.chk{display:flex;gap:10px;align-items:center;font-size:15px;color:var(--ink);margin-top:12px}
+label.chk input{width:22px;height:22px;flex:none}

@@ -1,12 +1,12 @@
 /* Service worker: app utilizzabile offline.
    - file dell'app: cache all'installazione (aggiornata a ogni nuova versione)
    - tessere della mappa: solo quelle già visualizzate, con limite (policy OpenStreetMap: niente scaricamento massivo) */
-const VERSIONE = 'aree-danno-1.3-beta-2';
+const VERSIONE = 'aree-danno-1.3-beta-3';
 const APP = ['./', 'index.html', 'manifest.webmanifest', 'css/app.css', 'css/extra.css',
   'js/engine.js', 'js/data.js', 'js/onu.js', 'js/app.onu.js', 'js/props-3b.js', 'js/props-gl.js', 'js/app.base.js', 'js/app.extra.js',
   'vendor/leaflet.js', 'vendor/leaflet.css', 'vendor/images/marker-icon.png', 'vendor/images/marker-icon-2x.png',
   'vendor/images/marker-shadow.png', 'vendor/images/layers.png', 'vendor/images/layers-2x.png',
-  'icons/icon-192.png', 'icons/icon-512.png'];
+  'icons/icon-192.png', 'icons/icon-512.png', 'img/logo-scp.jpg'];
 const TILE_CACHE = 'tessere-osm', MAX_TILES = 600;
 
 self.addEventListener('install', e => {
