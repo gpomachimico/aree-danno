@@ -74,30 +74,45 @@ $('btnGPS').onclick = () => {
 initMappa();
 
 function cerchiDaRisultato(r, g) {
-  const c = [];
-  if (!r.soloERG) {
-    if (Number.isFinite(r.zone_m.III) && r.zone_m.III) c.push({ r: r.zone_m.III, col: '#f1c40f', nome: 'Zona III' });
-    if (Number.isFinite(r.zone_m.II) && r.zone_m.II) c.push({ r: r.zone_m.II, col: '#e67e22', nome: 'Zona II' });
-    if (Number.isFinite(r.zone_m.I) && r.zone_m.I) c.push({ r: r.zone_m.I, col: '#c0392b', nome: 'Zona I' });
-  } else if (r.ergCaso) {
-    if (r.ergCaso.prot_km) c.push({ r: r.ergCaso.prot_km * 1000, col: '#f1c40f', nome: `Protezione sottovento (${r.ergCaso.per}, disegnata come cerchio)` });
-    c.push({ r: r.ergCaso.dist, col: '#e67e22', nome: 'ERG: ' + r.ergCaso.etichetta });
+  const F = formeZone(r), nomi = { III: 'Zona III', II: 'Zona II', I: 'Zona I' }, col = { III: '#f1c40f', II: '#e67e22', I: '#c0392b', PROT: '#f1c40f', ERG: '#e67e22' };
+  if (!r.soloERG) { F.add(r.zone_m.III, col.III, 'III'); F.add(r.zone_m.II, col.II, 'II'); F.add(r.zone_m.I, col.I, 'I'); }
+  else if (r.ergCaso) {
+    if (r.ergCaso.prot_km) F.add(r.ergCaso.prot_km * 1000, col.PROT, 'PROT');
+    F.z.push({ tipo: 'cerchio', r: r.ergCaso.dist, cx: 0, cy: 0, col: col.ERG, key: 'ERG' });
   }
-  if (r.qd) for (const x of r.qd.righe) if (x.k === 'IBD' || x.k === 'EWD') c.push({ r: x.m, col: '#7d3c98', nome: 'DoD: ' + x.nome, linea: true });
+  for (const f of F.z) f.nome = f.key === 'PROT' ? `Protezione sottovento (${r.ergCaso.per}${F.orient ? '' : ', disegnata come cerchio'})` : f.key === 'ERG' ? 'ERG: ' + r.ergCaso.etichetta : nomi[f.key];
+  const zone = F.z.map(f => ({ ...f, dist: f.tipo === 'cerchio' ? f.r : f.D }));
+  if (r.qd) for (const x of r.qd.righe) if (x.k === 'IBD' || x.k === 'EWD') zone.push({ tipo: 'cerchio', r: x.m, cx: 0, cy: 0, dist: x.m, col: '#7d3c98', nome: 'DoD: ' + x.nome, linea: true });
   const iso = isoNumero(g);
-  return { zone: c, iso };
+  return { zone, iso, orient: F.orient, ux: F.ux, uy: F.uy };
 }
+const spostaLL = (p, x, y) => [p[0] + y / 111320, p[1] + x / (111320 * Math.cos(p[0] * Math.PI / 180))];
 function disegnaMappa() {
   if (!mappa) return;
   livelloZone.clearLayers();
   const r = risultati[tabSel], g = DATA.guide[cur.guida];
   if (!posizione) impostaPosizione(mappa.getCenter().lat, mappa.getCenter().lng, 'centro della mappa (posizione non indicata)');
-  const { zone, iso } = cerchiDaRisultato(r, g);
-  for (const z of zone) L.circle(posizione, z.linea ? { radius: z.r, color: z.col, weight: 2, dashArray: '8 4', fill: false } : { radius: z.r, color: z.col, weight: 2, fillColor: z.col, fillOpacity: 0.28 }).bindTooltip(`${z.nome}: ${z.r} m`).addTo(livelloZone);
+  const { zone, iso, orient, ux, uy } = cerchiDaRisultato(r, g);
+  const pts = [];
+  for (const z of zone) {
+    const tip = `${z.nome}: ${z.dist} m`;
+    if (z.tipo === 'quadrato') {
+      const ll = z.pts.map(([x, y]) => spostaLL(posizione, x, y)); pts.push(...ll);
+      L.polygon(ll, { color: z.col, weight: 2, fillColor: z.col, fillOpacity: 0.28 }).bindTooltip(tip + ' sottovento').addTo(livelloZone);
+    } else {
+      const c = spostaLL(posizione, z.cx, z.cy);
+      pts.push(spostaLL(c, z.r, z.r), spostaLL(c, -z.r, -z.r));
+      L.circle(c, z.linea ? { radius: z.r, color: z.col, weight: 2, dashArray: '8 4', fill: false } : { radius: z.r, color: z.col, weight: 2, fillColor: z.col, fillOpacity: 0.28 }).bindTooltip(tip).addTo(livelloZone);
+    }
+  }
   L.circle(posizione, { radius: iso, color: '#2c3e50', weight: 2, dashArray: '6 5', fill: false }).bindTooltip(`Isolamento iniziale ERG: ${iso} m`).addTo(livelloZone);
-  if (r.ergCaso && !r.soloERG) L.circle(posizione, { radius: r.ergCaso.dist, color: '#2c3e50', weight: 1.5, dashArray: '2 6', fill: false }).bindTooltip(`ERG: ${r.ergCaso.etichetta} ${r.ergCaso.dist} m`).addTo(livelloZone);
-  const rmax = Math.max(iso, ...zone.map(z => z.r), r.ergCaso ? r.ergCaso.dist : 0);
-  mappa.fitBounds(L.latLng(posizione).toBounds(rmax * 2.2), { animate: false });
+  pts.push(spostaLL(posizione, iso, iso), spostaLL(posizione, -iso, -iso));
+  if (r.ergCaso && !r.soloERG) { L.circle(posizione, { radius: r.ergCaso.dist, color: '#2c3e50', weight: 1.5, dashArray: '2 6', fill: false }).bindTooltip(`ERG: ${r.ergCaso.etichetta} ${r.ergCaso.dist} m`).addTo(livelloZone); pts.push(spostaLL(posizione, r.ergCaso.dist, r.ergCaso.dist), spostaLL(posizione, -r.ergCaso.dist, -r.ergCaso.dist)); }
+  if (orient) {
+    const L0 = Math.max(iso, 30) * 1.5;
+    L.polyline([posizione, spostaLL(posizione, ux * L0, uy * L0)], { color: '#2c3e50', weight: 3 }).bindTooltip(`Vento da ${Math.round(r.dirVento)}°: la nube va verso ${Math.round((r.dirVento + 180) % 360)}°`).addTo(livelloZone);
+  }
+  mappa.fitBounds(L.latLngBounds(pts), { animate: false, padding: [10, 10] });
 }
 // la mappa si sposta nel riquadro "Zone" quando ci sono risultati, e torna su quando si cambia merce
 function spostaMappa(dove) {

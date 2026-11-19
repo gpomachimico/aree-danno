@@ -178,7 +178,7 @@ function buildFields() {
   }
   $('fields').innerHTML = h;
   $('inbox').classList.remove('hide');
-  $('meteobox').classList.toggle('hide', !(['GA', 'GL', 'JF', 'FF', 'VCE'].includes(m) || (m === 'PF' && p.fumi && p.fumi.tipo !== 'qual')));
+  $('meteobox').classList.toggle('hide', !(['GA', 'GL', 'JF', 'FF', 'VCE'].includes(m) || (m === 'PF' && p.fumi && p.fumi.tipo !== 'qual') || (cur.tih && !['PF', 'BL', 'TNT'].includes(m))));
   if (p.fonte && m !== 'BL') $('fields').insertAdjacentHTML('beforeend', `<p class="small">Fonti dei dati: ${p.fonte}.</p>`);
   $('calc').classList.remove('hide');
   bindExtra();
@@ -332,6 +332,41 @@ function bindGF(p) {
   agg(); aggM();
 }
 
+// ---------- geometria delle zone orientate con il vento ----------
+// Zone che dipendono dal vento: dispersione tossica, flash fire, protezione sottovento ERG; per la VCE si sposta il centro.
+function ventoDipendente(r) {
+  if (r.soloERG) return !!(r.ergCaso && r.ergCaso.prot_km);
+  return !!r.meteo && /Gas tossico|gaussiana|Flash fire|VCE/.test(r.scenario || '');
+}
+// forme da disegnare: { tipo: 'cerchio', r, cx, cy } oppure { tipo: 'quadrato', D } (coordinate in metri, x verso est, y verso nord)
+function formeZone(r) {
+  const dv = r.dirVento, orient = dv != null && ventoDipendente(r);
+  const b = orient ? ((dv + 180) % 360) * Math.PI / 180 : 0, ux = Math.sin(b), uy = Math.cos(b);
+  const z = [];
+  const add = (d, col, key) => {
+    if (!(Number.isFinite(d) && d)) return;
+    if (!orient) return z.push({ tipo: 'cerchio', r: d, cx: 0, cy: 0, col, key });
+    if (/VCE/.test(r.scenario)) { const off = r.dettagli.centro_esplosione_m || 0; return z.push({ tipo: 'cerchio', r: Math.max(d - off, 1), cx: ux * off, cy: uy * off, col, key }); }
+    z.push({ tipo: 'quadrato', D: d, col, key, pts: [[-uy * d / 2, ux * d / 2], [uy * d / 2, -ux * d / 2], [uy * d / 2 + ux * d, -ux * d / 2 + uy * d], [-uy * d / 2 + ux * d, ux * d / 2 + uy * d]] });
+  };
+  return { add, z, orient, ux, uy };
+}
+
+// meteo reale con direzione del vento (richiesta di Luca, 19/11/2026)
+const SETTORI16 = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSO', 'SO', 'OSO', 'O', 'ONO', 'NO', 'NNO'];
+$('dirSet').insertAdjacentHTML('beforeend', SETTORI16.map((n, i) => `<option value="${i * 22.5}">${n} (${String(i * 22.5).replace('.', ',')}°)</option>`).join(''));
+$('dirSet').addEventListener('change', () => { $('dirVento').value = $('dirSet').value; });
+$('dirVento').addEventListener('input', () => { $('dirSet').value = ''; });
+function dirVentoScelta() {
+  if (!meteoUser) return null;
+  const d = num('dirVento');
+  if (d === null) return null;
+  if (d < 0 || d > 360) throw 'Direzione del vento fuori campo (0–360°)';
+  return d % 360;
+}
+const nomeSettore = d => SETTORI16[Math.round(d / 22.5) % 16];
+function meteoScelto() { return meteoUser ? [{ stabilita: $('stab').value, u_ms: num('vento') || 1, T_C: num('temp') ?? 20 }] : M.METEO_PREDEFINITO; }
+
 $('mPre').onclick = () => { meteoUser = false; $('mPre').classList.add('on'); $('mUser').classList.remove('on'); $('meteoUser').classList.add('hide'); };
 $('mUser').onclick = () => { meteoUser = true; $('mUser').classList.add('on'); $('mPre').classList.remove('on'); $('meteoUser').classList.remove('hide'); };
 
@@ -354,7 +389,7 @@ $('calc').onclick = () => {
     } else if (m === 'GA' && typeof p.pv === 'number') {
       const vol = num('vol'); if (!vol || vol <= 0) throw 'Inserire il volume';
       const pvU = num('pv'), pv = pvU ?? p.pv, Trif = p.pv_T ?? 20;
-      const meteo = meteoUser ? [{ stabilita: $('stab').value, u_ms: num('vento') || 1, T_C: num('temp') ?? 20 }] : M.METEO_PREDEFINITO;
+      const meteo = meteoScelto();
       risultati = M.gaussianoMeteo({ volume_m3: vol / 1000, densita_soluzione: p.dens, frazione_tossico: p.frazione || 1, pm: p.pm, Pv_kPa: pv, Pv_rif_T_C: pvU ? undefined : Trif, area_m2: num('area'),
         soglie_ppm: { LC50: p.LC50, IDLH: p.IDLH, LOC: p.LOC }, sostanza: `${sost} (${p.nome})`,
         nota_soglie: `Soglie: LC50 = ${p.LC50} ppm (ratto, ${p.LC50_t}, senza correzione temporale: cautelativo se la durata supera 30 min); IDLH ${p.IDLH} ppm (NIOSH); LOC = IDLH/10 = ${p.LOC} ppm. Tensione di vapore ${pv} kPa ${pvU ? '(inserita dall\'utente)' : '(banca dati, ' + Trif + ' °C)'}${p.frazione ? '; frazione di sostanza tossica ' + p.frazione : ''}. Fonti: ${p.fonte}` }, meteo);
@@ -363,7 +398,7 @@ $('calc').onclick = () => {
       const vol = num('vol'); if (!vol || vol <= 0) throw 'Inserire il volume';
       const c = num('conc') || 33, pvU = num('pv');
       const pv = pvU ?? interpLog(p.pv, c), dens = interpLin(p.dens, c);
-      const meteo = meteoUser ? [{ stabilita: $('stab').value, u_ms: num('vento') || 1, T_C: num('temp') ?? 20 }] : M.METEO_PREDEFINITO;
+      const meteo = meteoScelto();
       risultati = M.gaussianoMeteo({ volume_m3: vol / 1000, densita_soluzione: dens, frazione_tossico: c / 100, pm: p.pm, Pv_kPa: +pv.toFixed(2), Pv_rif_T_C: pvU ? undefined : 20, area_m2: num('area'),
         soglie_ppm: { LC50: p.LC50, IDLH: p.IDLH, LOC: p.LOC }, sostanza: `${sost} ${c}%`,
         nota_soglie: `Soglie: LC50 30 min = ${p.LC50} ppm (LC50 ratto 1 h senza correzione temporale, scelta cautelativa); IDLH ${p.IDLH} ppm (NIOSH); LOC = IDLH/10 = ${p.LOC} ppm. Concentrazione ${c}%, densità ${dens.toFixed(3)}, tensione di vapore ${pv.toFixed(2)} kPa ${pvU ? '(inserita dall\'utente)' : '(International Critical Tables, 20 °C, tensione totale: cautelativo)'}` }, meteo);
@@ -372,7 +407,7 @@ $('calc').onclick = () => {
       const sc = $('gls').value, dmm = num('dforo') || 10;
       if (sc !== 'tot' && (dmm <= 0 || dmm > 300)) throw 'Diametro del foro fuori campo (1–300 mm)';
       const nomeC = { bomb: 'bombola', ton: 'recipiente a pressione da 1 t', cist: CIST_SOLO_TERRA[cur.u] ? 'cisterna stradale o ferroviaria (trasporto terrestre ADR/RID; l\'IMDG non ammette cisterne mobili per questa voce)' : 'cisterna / tank-container', altro: 'recipiente a pressione' }[$('glc').value];
-      const meteo = meteoUser ? [{ stabilita: $('stab').value, u_ms: num('vento') || 1, T_C: num('temp') ?? 20 }] : M.METEO_PREDEFINITO;
+      const meteo = meteoScelto();
       risultati = M.gasLiquefattoMeteo({ massa_kg: ms, scenario: sc, d_mm: dmm, h_m: $('glc').value === 'cist' ? 2 : 1, prop: p,
         soglie_ppm: { LC50: p.LC50, IDLH: p.IDLH, LOC: p.LOC }, sostanza: `${sost} (${p.nome})`,
         contenitore: `Recipiente: ${nomeC}, contenuto ${ms} kg di ${p.nome} liquefatto sotto pressione alla temperatura dell'aria`,
@@ -393,7 +428,7 @@ $('calc').onclick = () => {
         ms = num('massa'); if (!ms || ms <= 0) throw 'Inserire il contenuto del recipiente';
         cont = `Recipiente: ${nomeC}, contenuto ${ms} kg di ${p.nome} liquefatto sotto pressione alla temperatura dell'aria`;
       }
-      const meteo = meteoUser ? [{ stabilita: $('stab').value, u_ms: num('vento') || 1, T_C: num('temp') ?? 20 }] : M.METEO_PREDEFINITO;
+      const meteo = meteoScelto();
       const base = { massa_kg: ms, scenario: sc, d_mm: dmm, h_m: c === 'cist' ? 2 : 1, P_bar: Pb, prop: p, sostanza: `${sost} (${p.nome})`, contenitore: cont };
       if (m === 'JF') {
         const r = M.jetFire({ ...base, fase: sc, T_C: meteoUser ? (num('temp') ?? 20) : 20 });
@@ -435,13 +470,16 @@ $('calc').onclick = () => {
       }
       risultati = [{ scenario: 'Distanze ERG 2024', sostanza: sost, soloERG: true, ergCaso: caso, ipotesi: ipo, avvisi: avvisiE }];
     }
+    { const dv = dirVentoScelta();
+      if (dv !== null) risultati.forEach(r => { r.dirVento = dv;
+        if (ventoDipendente(r)) r.ipotesi.push(`Vento da ${String(Math.round(dv))}° (${nomeSettore(dv)}), la nube va verso ${String(Math.round((dv + 180) % 360))}° (${nomeSettore((dv + 180) % 360)}). Su mappa e schema le zone che dipendono dal vento sono disegnate sottovento con la forma della zona di azione protettiva ERG 2024: un quadrato lungo quanto la distanza e largo altrettanto, metà per lato rispetto alla direzione del vento, che copre anche le oscillazioni della direzione`); }); }
     if (cur.classe.startsWith('1.')) {
       const { nem } = leggiNEM(), na = num('nemart');
       const qd = M.qdDoD({ div: cur.classe, nem_kg: nem, nemArticolo_kg: na && na > 0 ? na : null, ferrovia: !!($('ferro') && $('ferro').checked), grossoCalibro: !!($('calibro') && $('calibro').checked) });
       if (qd.righe.length) risultati.forEach(r => r.qd = qd);
     }
     if (['PF', 'JF', 'BL', 'FF', 'VCE'].includes(m) && p.fumi)
-      aggiungiFumi(m, p, risultati, meteoUser ? [{ stabilita: $('stab').value, u_ms: num('vento') || 1, T_C: num('temp') ?? 20 }] : M.METEO_PREDEFINITO);
+      aggiungiFumi(m, p, risultati, meteoScelto());
   } catch (e) { alertBox(String(e)); return; }
   mostra();
 };
@@ -579,31 +617,47 @@ function bleveERG(r) {
 
 function disegna(r, g) {
   const W = 340, C = W / 2;
-  let cer = [];
-  if (!r.soloERG) {
-    if (Number.isFinite(r.zone_m.III) && r.zone_m.III) cer.push([r.zone_m.III, 'var(--z3)', 'III']);
-    if (Number.isFinite(r.zone_m.II) && r.zone_m.II) cer.push([r.zone_m.II, 'var(--z2)', 'II']);
-    if (Number.isFinite(r.zone_m.I) && r.zone_m.I) cer.push([r.zone_m.I, 'var(--z1)', 'I']);
-  }
+  const F = formeZone(r);
+  if (!r.soloERG) { F.add(r.zone_m.III, 'var(--z3)', 'III'); F.add(r.zone_m.II, 'var(--z2)', 'II'); F.add(r.zone_m.I, 'var(--z1)', 'I'); }
   const iso = isoNumero(g);
-  if (r.soloERG && r.ergCaso && r.ergCaso.prot_km) cer.push([r.ergCaso.prot_km * 1000, 'var(--z3)', 'PROT']);
-  if (r.soloERG && r.ergCaso && r.ergCaso.dist !== iso) cer.push([r.ergCaso.dist, 'var(--z2)', 'ERG']);
+  if (r.soloERG && r.ergCaso && r.ergCaso.prot_km) F.add(r.ergCaso.prot_km * 1000, 'var(--z3)', 'PROT');
+  if (r.soloERG && r.ergCaso && r.ergCaso.dist !== iso) F.z.push({ tipo: 'cerchio', r: r.ergCaso.dist, cx: 0, cy: 0, col: 'var(--z2)', key: 'ERG' });
   const ergApp = !r.soloERG && r.ergCaso ? r.ergCaso.dist : 0;
   const qdC = r.qd ? r.qd.righe.filter(x => x.k === 'IBD' || x.k === 'EWD') : [];
-  const rmax = Math.max(iso, ergApp, ...cer.map(c => c[0]), ...qdC.map(x => x.m));
-  const sc = (C - 14) / rmax;
+  // riquadro che contiene tutte le forme: lo schema si centra sulle zone, non sulla sorgente
+  const bb = [[0, 0]], cerchio = (cx, cy, rr) => bb.push([cx - rr, cy - rr], [cx + rr, cy + rr]);
+  cerchio(0, 0, Math.max(iso, ergApp, ...qdC.map(x => x.m)));
+  for (const f of F.z) f.tipo === 'cerchio' ? cerchio(f.cx, f.cy, f.r) : bb.push(...f.pts);
+  const x0 = Math.min(...bb.map(q => q[0])), x1 = Math.max(...bb.map(q => q[0])), y0 = Math.min(...bb.map(q => q[1])), y1 = Math.max(...bb.map(q => q[1]));
+  const sc = (W - 40) / Math.max(x1 - x0, y1 - y0, 1), mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+  const X = x => C + (x - mx) * sc, Y = y => C - (y - my) * sc;
   let s = `<svg viewBox="0 0 ${W} ${W}" role="img" aria-label="Zone di danno in scala">`;
-  for (const [rr, col] of cer) s += `<circle cx="${C}" cy="${C}" r="${rr * sc}" fill="${col}" fill-opacity=".55" stroke="${col}"/>`;
-  s += `<circle cx="${C}" cy="${C}" r="${iso * sc}" fill="none" stroke="var(--erg)" stroke-width="1.6" stroke-dasharray="5 4"/>`;
-  if (ergApp) s += `<circle cx="${C}" cy="${C}" r="${ergApp * sc}" fill="none" stroke="var(--erg)" stroke-width="1.2" stroke-dasharray="2 4"/>`;
-  for (const x of qdC) s += `<circle cx="${C}" cy="${C}" r="${x.m * sc}" fill="none" stroke="#7d3c98" stroke-width="${x.k === 'IBD' ? 1.8 : 1.2}" stroke-dasharray="${x.k === 'IBD' ? '8 3' : '1 3'}"/>`;
-  s += `<circle cx="${C}" cy="${C}" r="3" fill="var(--ink)"/>`;
+  for (const f of F.z) s += f.tipo === 'cerchio'
+    ? `<circle cx="${X(f.cx)}" cy="${Y(f.cy)}" r="${f.r * sc}" fill="${f.col}" fill-opacity=".55" stroke="${f.col}"/>`
+    : `<polygon points="${f.pts.map(([x, y]) => X(x).toFixed(1) + ',' + Y(y).toFixed(1)).join(' ')}" fill="${f.col}" fill-opacity=".55" stroke="${f.col}"/>`;
+  const S0 = X(0), T0 = Y(0);
+  s += `<circle cx="${S0}" cy="${T0}" r="${iso * sc}" fill="none" stroke="var(--erg)" stroke-width="1.6" stroke-dasharray="5 4"/>`;
+  if (ergApp) s += `<circle cx="${S0}" cy="${T0}" r="${ergApp * sc}" fill="none" stroke="var(--erg)" stroke-width="1.2" stroke-dasharray="2 4"/>`;
+  for (const x of qdC) s += `<circle cx="${S0}" cy="${T0}" r="${x.m * sc}" fill="none" stroke="#7d3c98" stroke-width="${x.k === 'IBD' ? 1.8 : 1.2}" stroke-dasharray="${x.k === 'IBD' ? '8 3' : '1 3'}"/>`;
+  s += `<circle cx="${S0}" cy="${T0}" r="3" fill="var(--ink)"/>`;
   // scala
-  const nice = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000].find(v => v * sc > 50) || 5000;
-  s += `<line x1="12" y1="${W - 14}" x2="${12 + nice * sc}" y2="${W - 14}" stroke="var(--ink)" stroke-width="2"/><text x="12" y="${W - 20}" font-size="11" fill="var(--ink)">${nice} m</text>`;
-  if (r.meteo) s += `<text x="${W - 12}" y="18" font-size="11" text-anchor="end" fill="var(--ink)">vento → sottovento</text>`;
+  const nice = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000].find(v => v * sc > 50) || 10000;
+  s += `<line x1="12" y1="${W - 14}" x2="${12 + nice * sc}" y2="${W - 14}" stroke="var(--ink)" stroke-width="2"/><text x="12" y="${W - 20}" font-size="11" fill="var(--ink)">${nice >= 1000 ? nice / 1000 + ' km' : nice + ' m'}</text>`;
+  // nord e vento
+  s += `<text x="${W - 14}" y="16" font-size="12" text-anchor="middle" font-weight="bold" fill="var(--ink)">N</text><line x1="${W - 14}" y1="20" x2="${W - 14}" y2="34" stroke="var(--ink)" stroke-width="1.5"/>`;
+  if (F.orient) {
+    const ax = S0 + F.ux * 14, ay = T0 - F.uy * 14, bx = S0 + F.ux * 54, by = T0 - F.uy * 54;
+    s += `<defs><marker id="frv" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 z" fill="var(--ink)"/></marker></defs><line x1="${ax}" y1="${ay}" x2="${bx}" y2="${by}" stroke="var(--ink)" stroke-width="2" marker-end="url(#frv)"/><text x="12" y="16" font-size="11" fill="var(--ink)">vento da ${Math.round(r.dirVento)}° (${nomeSettore(r.dirVento)})</text>`;
+  } else if (r.meteo) s += `<text x="12" y="16" font-size="11" fill="var(--ink)">direzione del vento non indicata</text>`;
   $('graf').innerHTML = s + '</svg>';
-  $('grafnote').textContent = (r.meteo ? 'Distanze sottovento rappresentate come cerchi (inviluppo cautelativo per direzione del vento incerta). ' : '') + 'Tratteggio: isolamento iniziale ERG ' + iso + ' m. ' + (ergApp ? 'Puntinato: distanza ERG applicabile (' + r.ergCaso.etichetta + ') ' + ergApp + ' m. ' : '') + (r.soloERG ? 'Area colorata: distanza ERG da applicare' + (r.ergCaso && r.ergCaso.prot_km ? ` (arancio: isolamento ${r.ergCaso.dist} m; giallo: protezione sottovento ${String(r.ergCaso.prot_km).replace('.', ',')} km, disegnata come cerchio). ` : '. ') : '') + (cer.length < 3 && !r.soloERG ? 'Le zone non raggiunte non sono disegnate.' : '') + (qdC.length ? ' Viola: distanze DoD (' + qdC.map(x => (x.k === 'IBD' ? 'IBD tratteggio lungo ' : 'allontanamento in emergenza puntinato ') + x.m + ' m').join('; ') + ').' : '');
+  const nZone = F.z.filter(f => ['I', 'II', 'III'].includes(f.key)).length;
+  $('grafnote').textContent = (F.orient
+    ? (/VCE/.test(r.scenario) ? `Vento da ${Math.round(r.dirVento)}° (${nomeSettore(r.dirVento)}): cerchi di sovrappressione centrati sul centro dell'esplosione, spostato sottovento a metà della distanza del LFL. ` : `Vento da ${Math.round(r.dirVento)}° (${nomeSettore(r.dirVento)}): zone che dipendono dal vento disegnate sottovento come quadrati lunghi e larghi quanto la distanza, metà per lato (forma della zona di azione protettiva ERG 2024). `)
+    : (ventoDipendente(r) ? 'Direzione del vento non indicata: distanze sottovento rappresentate come cerchi (inviluppo cautelativo). ' : ''))
+    + 'Tratteggio: isolamento iniziale ERG ' + iso + ' m. ' + (ergApp ? 'Puntinato: distanza ERG applicabile (' + r.ergCaso.etichetta + ') ' + ergApp + ' m. ' : '')
+    + (r.soloERG ? 'Area colorata: distanza ERG da applicare' + (r.ergCaso && r.ergCaso.prot_km ? ` (arancio: isolamento ${r.ergCaso.dist} m; giallo: protezione sottovento ${String(r.ergCaso.prot_km).replace('.', ',')} km${F.orient ? '' : ', disegnata come cerchio'}). ` : '. ') : '')
+    + (nZone < 3 && !r.soloERG ? 'Le zone non raggiunte non sono disegnate.' : '')
+    + (qdC.length ? ' Viola: distanze DoD (' + qdC.map(x => (x.k === 'IBD' ? 'IBD tratteggio lungo ' : 'allontanamento in emergenza puntinato ') + x.m + ' m').join('; ') + ').' : '');
 }
 
 $('copy').onclick = async () => {
