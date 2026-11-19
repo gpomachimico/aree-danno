@@ -136,10 +136,14 @@ function gaussiano({ volume_m3, densita_soluzione, frazione_tossico = 1, pm, Pv_
   const C_mgm3 = x => { const [sy, sz] = sig(x + xv); return Q * 1e6 / (Math.PI * sy * sz * u_ms); };
   const ppm2mg = ppm => ppm * pm / (22.414 * T_K / 273.15);
   const d = {};
-  for (const [k, ppm] of Object.entries(soglie_ppm)) d[k] = r1(distanzaSoglia(C_mgm3, ppm2mg(ppm), 1, 50000));
+  const impronta = {};
+  for (const [k, ppm] of Object.entries(soglie_ppm)) {
+    d[k] = r1(distanzaSoglia(C_mgm3, ppm2mg(ppm), 1, 50000));
+    if (d[k] && Number.isFinite(d[k])) impronta[k] = improntaCurva(C_mgm3, x => sig(x + xv)[0], ppm2mg(ppm), d[k]);
+  }
   return {
     scenario: `Dispersione gaussiana – meteo ${stabilita}${u_ms}`, sostanza,
-    distanze_m: d,
+    distanze_m: d, impronta,
     zone_m: { I: d.LC50, II: d.IDLH, III: d.LOC },
     dettagli: { area_pozza_m2: +A.toFixed(1), portata_evaporazione_kg_s: +Q.toFixed(4), portata_kg_min: +(Q * 60).toFixed(2), durata_rilascio_min: +durata_min.toFixed(0), sorgente_virtuale_m: +xv.toFixed(1), conc_100m_ppm: r1(C_mgm3(100) / ppm2mg(1)) },
     ipotesi: [
@@ -287,6 +291,16 @@ function portataForo({ fase, d_mm, P_Pa, T_K, prop, h_m = 1 }) {
   const r = P_ATM / P_Pa, rho = P_Pa * M / (R_GAS * T_K);
   return { Q: A * Math.sqrt(2 * rho * P_Pa * g / (g - 1) * (Math.pow(r, 2 / g) - Math.pow(r, (g + 1) / g))), Cd: 1, critico: false };
 }
+// impronta della nube: semilarghezza dell'isopleta y(x) = σy(x)·√(2·ln(C_asse(x)/soglia)), profilo laterale gaussiano
+function improntaCurva(f, sy, s, d, N = 48) {
+  const pts = [];
+  for (let i = 0; i <= N; i++) {
+    const x = Math.max(d * Math.pow(i / N, 1.6), 0.5), c = f(x);
+    pts.push([+x.toFixed(1), c > s ? +(sy(x) * Math.sqrt(2 * Math.log(c / s))).toFixed(1) : 0]);
+  }
+  pts[pts.length - 1] = [d, 0];
+  return pts;
+}
 const X_MAX_GL = 10000;   // limite di calcolo: validità dei coefficienti di Briggs (fino a 10 km)
 const itn = (v, n) => v.toFixed(n).replace('.', ',');
 function gasLiquefatto({ massa_kg, scenario = 'tot', d_mm = 10, h_m = 1, P_bar = null, prop, soglie_ppm, stabilita = 'D', u_ms = 5, T_C = 20, sostanza = '', nota_soglie = '', contenitore = '' }) {
@@ -332,27 +346,29 @@ function gasLiquefatto({ massa_kg, scenario = 'tot', d_mm = 10, h_m = 1, P_bar =
     const sy0 = pl.LH(xt) * 2 / Math.sqrt(2 * Math.PI), sz0 = Q / (Math.PI * sy0 * C * u_ms);
     const xy = inv(x => sig(x)[0], sy0), xz = inv(x => sig(x)[1], sz0);
     const f = x => { if (x <= xt) return pl.cm(x) * 1e6; const sy = sig(x - xt + xy)[0], sz = sig(x - xt + xz)[1]; return Q / (Math.PI * sy * sz * u_ms) / kgm3(1); };
-    return { f, xt };
+    return { f, xt, sy: x => x <= xt ? pl.LH(x) * 2 / Math.sqrt(2 * Math.PI) : sig(x - xt + xy)[0] };
   };
   const accNube = () => {
     const xt = nu.xLontano, C = kgm3(nu.cm(xt) * 1e6);
     const sy0 = nu.Rn(xt) / Math.SQRT2, sz0 = 2 * mNube / (Math.pow(2 * Math.PI, 1.5) * sy0 * sy0 * C);
     const xy = inv(x => sigP(x)[0], sy0), xz = inv(x => sigP(x)[1], sz0);
     const f = x => { if (x <= xt) return nu.cm(x) * 1e6; const sy = sigP(x - xt + xy)[0], sz = sigP(x - xt + xz)[1]; return 2 * mNube / (Math.pow(2 * Math.PI, 1.5) * sy * sy * sz) / kgm3(1); };
-    return { f, xt };
+    return { f, xt, sy: x => x <= xt ? nu.Rn(x) / Math.SQRT2 : sigP(x - xt + xy)[0] };
   };
   const curve = [
-    ['pennacchio continuo', pl.denso ? accPenn() : { f: ppmG, xt: 0 }, pl.denso],
-    ['nube istantanea', nu.denso ? accNube() : { f: ppmGi, xt: 0 }, nu.denso]
+    ['pennacchio continuo', pl.denso ? accPenn() : { f: ppmG, xt: 0, sy: x => sig(x)[0] }, pl.denso],
+    ['nube istantanea', nu.denso ? accNube() : { f: ppmGi, xt: 0, sy: x => sigP(x)[0] }, nu.denso]
   ];
+  const impronta = {};
   for (const [k, ppm] of Object.entries(soglie_ppm)) {
     // un rilascio di durata finita non supera né il pennacchio stazionario né la nube istantanea: si prende il minore
-    const cs = curve.map(([n, c, den]) => [distanzaSoglia(c.f, ppm, 0.01, X_MAX_GL), n, den, c.xt]).filter(c => c[0] !== null);
+    const cs = curve.map(([n, c, den]) => [distanzaSoglia(c.f, ppm, 0.01, X_MAX_GL), n, den, c.xt, c]).filter(c => c[0] !== null);
     if (!cs.length) { d[k] = null; gov[k] = '–'; continue; }
     cs.sort((a, b) => a[0] - b[0]);
-    const [x, n, den, xt] = cs[0];
+    const [x, n, den, xt, cv] = cs[0];
     d[k] = r1(x);
     if (!Number.isFinite(x)) { gov[k] = 'oltre 10 km'; continue; }
+    impronta[k] = improntaCurva(cv.f, cv.sy, ppm, x);
     gov[k] = `${n}: ${den ? (x <= xt ? 'gas denso (Britter-McQuaid)' : 'gas denso, poi passivo oltre ' + Math.round(xt) + ' m') : 'gas passivo (gaussiano)'}`;
   }
   if (!pl.denso && !nu.denso) avvisi.push(rho_s < rho_a ? `Il vapore puro (${itn(rho_s, 2)} kg/m³) è più leggero dell'aria (${itn(rho_a, 2)} kg/m³): calcolo con il solo modello gaussiano passivo. Un rilascio bifase con aerosol (tipico dell'ammoniaca) può però formare una nube fredda più pesante dell'aria che resta al suolo.` : 'Criterio di Britter-McQuaid non soddisfatto: nube a comportamento passivo, calcolo con il modello gaussiano');
@@ -362,7 +378,7 @@ function gasLiquefatto({ massa_kg, scenario = 'tot', d_mm = 10, h_m = 1, P_bar =
   if (durata > 3600) avvisi.push(`Durata del rilascio stimata ${Math.round(durata / 60)} min: le soglie LC50 riferite a 30–60 min sono superate in durata, la zona I è sottostimata per esposizioni lunghe`);
   return {
     scenario: `Gas tossico liquefatto – meteo ${stabilita}${u_ms}`, sostanza,
-    distanze_m: d, oltre_m: X_MAX_GL,
+    distanze_m: d, oltre_m: X_MAX_GL, impronta,
     zone_m: { I: d.LC50, II: d.IDLH, III: d.LOC },
     interno: { Q, T_s, mNube },
     dettagli: {
@@ -446,6 +462,7 @@ function flashFire(param) {
   const r = gasLiquefatto({ ...param, soglie_ppm: { LFL: lfl, mezzo_LFL: lfl / 2 } });
   r.scenario = `Flash fire – meteo ${param.stabilita}${param.u_ms}`;
   r.distanze_m = { elevata_letalita: r.distanze_m.LFL, inizio_letalita: r.distanze_m.mezzo_LFL };
+  r.impronta = { elevata_letalita: r.impronta.LFL, inizio_letalita: r.impronta.mezzo_LFL };
   r.zone_m = { I: r.distanze_m.elevata_letalita, II: r.distanze_m.inizio_letalita, III: undefined };
   r.dettagli.modello_elevata_letalita = r.dettagli.modello_LFL; r.dettagli.modello_inizio_letalita = r.dettagli.modello_mezzo_LFL;
   delete r.dettagli.modello_LFL; delete r.dettagli.modello_mezzo_LFL;

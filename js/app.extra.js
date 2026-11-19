@@ -99,6 +99,10 @@ function disegnaMappa() {
     if (z.tipo === 'quadrato') {
       const ll = z.pts.map(([x, y]) => spostaLL(posizione, x, y)); pts.push(...ll);
       L.polygon(ll, { color: z.col, weight: 2, fillColor: z.col, fillOpacity: 0.28 }).bindTooltip(tip + ' sottovento').addTo(livelloZone);
+      if (z.conf) {
+        if (z.conf.cerchio) { L.circle(posizione, { radius: z.conf.cerchio, color: z.col, weight: 1.5, dashArray: '5 4', fill: false }).bindTooltip(`${z.nome}: linea di confidenza (vento debole, direzione incerta)`).addTo(livelloZone); pts.push(spostaLL(posizione, z.conf.cerchio, z.conf.cerchio), spostaLL(posizione, -z.conf.cerchio, -z.conf.cerchio)); }
+        else for (const l of z.conf.linee) { const lc = l.map(([x, y]) => spostaLL(posizione, x, y)); pts.push(...lc); L.polygon(lc, { color: z.col, weight: 1.5, dashArray: '5 4', fill: false }).bindTooltip(`${z.nome}: linea di confidenza ±30°`).addTo(livelloZone); }
+      }
     } else {
       const c = spostaLL(posizione, z.cx, z.cy);
       pts.push(spostaLL(c, z.r, z.r), spostaLL(c, -z.r, -z.r));

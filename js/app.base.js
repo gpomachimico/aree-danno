@@ -332,6 +332,18 @@ function bindGF(p) {
   agg(); aggM();
 }
 
+// ---------- linee di confidenza sulla direzione del vento (opzione stile ALOHA, scelta di Luca 19/11/2026) ----------
+// ALOHA (Jones et al. 2013, NOAA TM NOS OR&R 43, § 4.5.3) ruota l'impronta di un angolo α basato sulla larghezza del pennacchio
+// gaussiano a 5 minuti di trasporto; il coefficiente esatto della formula non è stato verificato sul testo originale.
+// Finché ALOHA_VERIFICATO è false si usa l'angolo fisso del modello NATO ATP-45 (cerchio con vento ≤ 10 km/h, settore di semiampiezza 30° oltre)
+const ALOHA_VERIFICATO = false;
+function angoloConfidenza(u) {
+  if (ALOHA_VERIFICATO) return { cerchio: false, gradi: null, fedele: true, testo: '' };
+  if (u <= 10 / 3.6) return { cerchio: true, gradi: 180, fedele: false, testo: `Linee di confidenza: con vento di ${String(u).replace('.', ',')} m/s (≤ 10 km/h) la direzione è poco prevedibile e la zona è disegnata come cerchio di raggio pari alla distanza (modello NATO ATP-45). Metodo NON fedele ad ALOHA: il coefficiente della formula di ALOHA per l'angolo di confidenza non è stato verificato sul testo originale, quindi si usa un angolo fisso dichiarato.` };
+  return { cerchio: false, gradi: 30, fedele: false, testo: `Linee di confidenza: impronta ruotata di ±30° attorno alla direzione del vento (semiampiezza del settore del modello NATO ATP-45 per vento oltre 10 km/h). Metodo NON fedele ad ALOHA: il coefficiente della formula di ALOHA per l'angolo di confidenza non è stato verificato sul testo originale, quindi si usa un angolo fisso dichiarato.` };
+}
+const ZONA_SOGLIA = { I: ['LC50', 'elevata_letalita'], II: ['IDLH', 'inizio_letalita'], III: ['LOC'] };
+
 // ---------- geometria delle zone orientate con il vento ----------
 // Zone che dipendono dal vento: dispersione tossica, flash fire, protezione sottovento ERG; per la VCE si sposta il centro.
 function ventoDipendente(r) {
@@ -347,6 +359,15 @@ function formeZone(r) {
     if (!(Number.isFinite(d) && d)) return;
     if (!orient) return z.push({ tipo: 'cerchio', r: d, cx: 0, cy: 0, col, key });
     if (/VCE/.test(r.scenario)) { const off = r.dettagli.centro_esplosione_m || 0; return z.push({ tipo: 'cerchio', r: Math.max(d - off, 1), cx: ux * off, cy: uy * off, col, key }); }
+    const imp = r.rappr === 'aloha' && r.impronta ? (ZONA_SOGLIA[key] || []).map(k => r.impronta[k]).find(Boolean) : null;
+    if (imp) {
+      // impronta calcolata: lato sinistro all'andata, lato destro al ritorno, poi ruotata nella direzione sottovento
+      const loc = [...imp.map(([x, y]) => [x, y]), ...imp.slice().reverse().map(([x, y]) => [x, -y])];
+      const rot = (a) => loc.map(([x, y]) => { const c = Math.cos(a), sn = Math.sin(a), X = x * c - y * sn, Y = x * sn + y * c; return [ux * X + uy * Y, uy * X - ux * Y]; });
+      const a = angoloConfidenza(r.meteo.vento_ms);
+      const conf = a.cerchio ? { cerchio: d } : { linee: [rot(a.gradi * Math.PI / 180), rot(-a.gradi * Math.PI / 180)] };
+      return z.push({ tipo: 'quadrato', D: d, col, key, pts: rot(0), conf });
+    }
     z.push({ tipo: 'quadrato', D: d, col, key, pts: [[-uy * d / 2, ux * d / 2], [uy * d / 2, -ux * d / 2], [uy * d / 2 + ux * d, -ux * d / 2 + uy * d], [-uy * d / 2 + ux * d, ux * d / 2 + uy * d]] });
   };
   return { add, z, orient, ux, uy };
@@ -471,8 +492,9 @@ $('calc').onclick = () => {
       risultati = [{ scenario: 'Distanze ERG 2024', sostanza: sost, soloERG: true, ergCaso: caso, ipotesi: ipo, avvisi: avvisiE }];
     }
     { const dv = dirVentoScelta();
-      if (dv !== null) risultati.forEach(r => { r.dirVento = dv;
-        if (ventoDipendente(r)) r.ipotesi.push(`Vento da ${String(Math.round(dv))}° (${nomeSettore(dv)}), la nube va verso ${String(Math.round((dv + 180) % 360))}° (${nomeSettore((dv + 180) % 360)}). Su mappa e schema le zone che dipendono dal vento sono disegnate sottovento con la forma della zona di azione protettiva ERG 2024: un quadrato lungo quanto la distanza e largo altrettanto, metà per lato rispetto alla direzione del vento, che copre anche le oscillazioni della direzione`); }); }
+      if (dv !== null) risultati.forEach(r => { r.dirVento = dv; r.rappr = $('rappr').value === 'aloha' && r.impronta && !r.soloERG && !/VCE/.test(r.scenario) ? 'aloha' : 'erg';
+        if (ventoDipendente(r) && r.rappr === 'aloha') { const a = angoloConfidenza(r.meteo.vento_ms); r.ipotesi.push(`Vento da ${String(Math.round(dv))}° (${nomeSettore(dv)}), la nube va verso ${String(Math.round((dv + 180) % 360))}° (${nomeSettore((dv + 180) % 360)}). Rappresentazione stile ALOHA: per ogni soglia è disegnata l'impronta calcolata della nube (isopleta con profilo laterale gaussiano: semilarghezza σy·√(2·ln(C/soglia)), con la larghezza della nube densa di Britter-McQuaid nel campo vicino). ${a.testo}`); }
+        else if (ventoDipendente(r)) r.ipotesi.push(`Vento da ${String(Math.round(dv))}° (${nomeSettore(dv)}), la nube va verso ${String(Math.round((dv + 180) % 360))}° (${nomeSettore((dv + 180) % 360)}). Su mappa e schema le zone che dipendono dal vento sono disegnate sottovento con la forma della zona di azione protettiva ERG 2024: un quadrato lungo quanto la distanza e largo altrettanto, metà per lato rispetto alla direzione del vento, che copre anche le oscillazioni della direzione`); }); }
     if (cur.classe.startsWith('1.')) {
       const { nem } = leggiNEM(), na = num('nemart');
       const qd = M.qdDoD({ div: cur.classe, nem_kg: nem, nemArticolo_kg: na && na > 0 ? na : null, ferrovia: !!($('ferro') && $('ferro').checked), grossoCalibro: !!($('calibro') && $('calibro').checked) });
@@ -627,7 +649,7 @@ function disegna(r, g) {
   // riquadro che contiene tutte le forme: lo schema si centra sulle zone, non sulla sorgente
   const bb = [[0, 0]], cerchio = (cx, cy, rr) => bb.push([cx - rr, cy - rr], [cx + rr, cy + rr]);
   cerchio(0, 0, Math.max(iso, ergApp, ...qdC.map(x => x.m)));
-  for (const f of F.z) f.tipo === 'cerchio' ? cerchio(f.cx, f.cy, f.r) : bb.push(...f.pts);
+  for (const f of F.z) { f.tipo === 'cerchio' ? cerchio(f.cx, f.cy, f.r) : bb.push(...f.pts); if (f.conf) f.conf.cerchio ? cerchio(0, 0, f.conf.cerchio) : f.conf.linee.forEach(l => bb.push(...l)); }
   const x0 = Math.min(...bb.map(q => q[0])), x1 = Math.max(...bb.map(q => q[0])), y0 = Math.min(...bb.map(q => q[1])), y1 = Math.max(...bb.map(q => q[1]));
   const sc = (W - 40) / Math.max(x1 - x0, y1 - y0, 1), mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
   const X = x => C + (x - mx) * sc, Y = y => C - (y - my) * sc;
@@ -635,6 +657,9 @@ function disegna(r, g) {
   for (const f of F.z) s += f.tipo === 'cerchio'
     ? `<circle cx="${X(f.cx)}" cy="${Y(f.cy)}" r="${f.r * sc}" fill="${f.col}" fill-opacity=".55" stroke="${f.col}"/>`
     : `<polygon points="${f.pts.map(([x, y]) => X(x).toFixed(1) + ',' + Y(y).toFixed(1)).join(' ')}" fill="${f.col}" fill-opacity=".55" stroke="${f.col}"/>`;
+  for (const f of F.z) if (f.conf) s += f.conf.cerchio
+    ? `<circle cx="${X(0)}" cy="${Y(0)}" r="${f.conf.cerchio * sc}" fill="none" stroke="${f.col}" stroke-width="1.4" stroke-dasharray="4 3"/>`
+    : f.conf.linee.map(l => `<polygon points="${l.map(([x, y]) => X(x).toFixed(1) + ',' + Y(y).toFixed(1)).join(' ')}" fill="none" stroke="${f.col}" stroke-width="1.4" stroke-dasharray="4 3"/>`).join('');
   const S0 = X(0), T0 = Y(0);
   s += `<circle cx="${S0}" cy="${T0}" r="${iso * sc}" fill="none" stroke="var(--erg)" stroke-width="1.6" stroke-dasharray="5 4"/>`;
   if (ergApp) s += `<circle cx="${S0}" cy="${T0}" r="${ergApp * sc}" fill="none" stroke="var(--erg)" stroke-width="1.2" stroke-dasharray="2 4"/>`;
@@ -652,7 +677,7 @@ function disegna(r, g) {
   $('graf').innerHTML = s + '</svg>';
   const nZone = F.z.filter(f => ['I', 'II', 'III'].includes(f.key)).length;
   $('grafnote').textContent = (F.orient
-    ? (/VCE/.test(r.scenario) ? `Vento da ${Math.round(r.dirVento)}° (${nomeSettore(r.dirVento)}): cerchi di sovrappressione centrati sul centro dell'esplosione, spostato sottovento a metà della distanza del LFL. ` : `Vento da ${Math.round(r.dirVento)}° (${nomeSettore(r.dirVento)}): zone che dipendono dal vento disegnate sottovento come quadrati lunghi e larghi quanto la distanza, metà per lato (forma della zona di azione protettiva ERG 2024). `)
+    ? (r.rappr === 'aloha' ? `Vento da ${Math.round(r.dirVento)}° (${nomeSettore(r.dirVento)}): aree colorate = impronta calcolata della nube per ogni soglia; tratteggio dello stesso colore = linee di confidenza sulla direzione del vento (${angoloConfidenza(r.meteo.vento_ms).cerchio ? 'cerchio: vento ≤ 10 km/h' : '±30°'}, angolo fisso NATO ATP-45, non fedele ad ALOHA). ` : /VCE/.test(r.scenario) ? `Vento da ${Math.round(r.dirVento)}° (${nomeSettore(r.dirVento)}): cerchi di sovrappressione centrati sul centro dell'esplosione, spostato sottovento a metà della distanza del LFL. ` : `Vento da ${Math.round(r.dirVento)}° (${nomeSettore(r.dirVento)}): zone che dipendono dal vento disegnate sottovento come quadrati lunghi e larghi quanto la distanza, metà per lato (forma della zona di azione protettiva ERG 2024). `)
     : (ventoDipendente(r) ? 'Direzione del vento non indicata: distanze sottovento rappresentate come cerchi (inviluppo cautelativo). ' : ''))
     + 'Tratteggio: isolamento iniziale ERG ' + iso + ' m. ' + (ergApp ? 'Puntinato: distanza ERG applicabile (' + r.ergCaso.etichetta + ') ' + ergApp + ' m. ' : '')
     + (r.soloERG ? 'Area colorata: distanza ERG da applicare' + (r.ergCaso && r.ergCaso.prot_km ? ` (arancio: isolamento ${r.ergCaso.dist} m; giallo: protezione sottovento ${String(r.ergCaso.prot_km).replace('.', ',')} km${F.orient ? '' : ', disegnata come cerchio'}). ` : '. ') : '')
