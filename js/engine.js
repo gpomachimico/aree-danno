@@ -289,22 +289,25 @@ function portataForo({ fase, d_mm, P_Pa, T_K, prop, h_m = 1 }) {
 }
 const X_MAX_GL = 10000;   // limite di calcolo: validità dei coefficienti di Briggs (fino a 10 km)
 const itn = (v, n) => v.toFixed(n).replace('.', ',');
-function gasLiquefatto({ massa_kg, scenario = 'tot', d_mm = 10, h_m = 1, prop, soglie_ppm, stabilita = 'D', u_ms = 5, T_C = 20, sostanza = '', nota_soglie = '', contenitore = '' }) {
+function gasLiquefatto({ massa_kg, scenario = 'tot', d_mm = 10, h_m = 1, P_bar = null, prop, soglie_ppm, stabilita = 'D', u_ms = 5, T_C = 20, sostanza = '', nota_soglie = '', contenitore = '' }) {
   const Ta = T_C + 273.15, M = prop.pm / 1000;
-  const Psat = psatBar(prop.ps, T_C) * 1e5;
+  const comp = !!prop.compresso;                               // gas compresso (non liquefatto)
+  if (comp && scenario === 'liq') throw 'Gas compresso: non esiste una fase liquida, scegliere il foro in fase gassosa o il rilascio totale';
+  const Psat = comp ? P_bar * 1e5 : psatBar(prop.ps, T_C) * 1e5;
   const rho_a = P_ATM * 0.028964 / (R_GAS * Ta);
   // frazione di flash adiabatica (CCPS 1999): f = 1 - exp(-cp (T - Tb) / hv)
-  const flash = Ta > prop.Tb ? 1 - Math.exp(-prop.cpl * (Ta - prop.Tb) / (prop.hv * 1000)) : 0;
+  const flash = comp ? 0 : Ta > prop.Tb ? 1 - Math.exp(-prop.cpl * (Ta - prop.Tb) / (prop.hv * 1000)) : 0;
   let Q, T_s, Ts_K, ipoSorg, fo = null;
   if (scenario === 'tot') {
-    Q = massa_kg / 600; T_s = 600; Ts_K = Math.min(prop.Tb, Ta);
-    ipoSorg = `Rilascio dell'intero contenuto (${massa_kg} kg) come gas in 10 minuti: criterio dello scenario peggiore di 40 CFR 68.25(c)(1) (EPA, Risk Management Program) per i gas tossici liquefatti sotto pressione`;
+    Q = massa_kg / 600; T_s = 600; Ts_K = comp ? Ta : Math.min(prop.Tb, Ta);
+    ipoSorg = `Rilascio dell'intero contenuto (${massa_kg} kg) come gas in 10 minuti: criterio dello scenario peggiore di 40 CFR 68.25 (EPA, Risk Management Program) per i gas ${comp ? 'compressi' : 'liquefatti sotto pressione'}`;
   } else {
     fo = portataForo({ fase: scenario, d_mm, P_Pa: Psat, T_K: Ta, prop, h_m });
     Q = fo.Q; if (!(Q > 0)) throw 'Con questa temperatura la pressione nel recipiente non supera quella atmosferica: rilascio in fase gassosa non calcolabile';
     T_s = massa_kg / Q; Ts_K = scenario === 'liq' ? Math.min(prop.Tb, Ta) : Ta;
     ipoSorg = scenario === 'liq'
       ? `Foro di ${d_mm} mm in fase liquida: portata di Bernoulli con Cd 0,61 (CCPS 1999), Δp = pressione di vapore a ${T_C} °C meno la pressione atmosferica, più un battente di ${h_m} m; portata costante, cautelativa per il liquido saturo che vaporizza nel foro`
+      : comp ? `Foro di ${d_mm} mm: efflusso isoentropico ${fo.critico ? 'critico (sonico)' : 'subcritico'} con Cd 1 (cautelativo), pressione ${itn(P_bar, 0)} bar tenuta costante (la pressione reale cala durante lo svuotamento: portata e durata sono una stima cautelativa della portata iniziale)`
       : `Foro di ${d_mm} mm in fase gassosa: efflusso isoentropico ${fo.critico ? 'critico (sonico)' : 'subcritico'} con Cd 1 (cautelativo), pressione iniziale = tensione di vapore a ${T_C} °C, costante (la pressione reale cala per il raffreddamento del liquido)`;
   }
   const durata = T_s;
@@ -355,15 +358,16 @@ function gasLiquefatto({ massa_kg, scenario = 'tot', d_mm = 10, h_m = 1, prop, s
   if (!pl.denso && !nu.denso) avvisi.push(rho_s < rho_a ? `Il vapore puro (${itn(rho_s, 2)} kg/m³) è più leggero dell'aria (${itn(rho_a, 2)} kg/m³): calcolo con il solo modello gaussiano passivo. Un rilascio bifase con aerosol (tipico dell'ammoniaca) può però formare una nube fredda più pesante dell'aria che resta al suolo.` : 'Criterio di Britter-McQuaid non soddisfatto: nube a comportamento passivo, calcolo con il modello gaussiano');
   if (pl.fuoriCampo || nu.fuoriCampo) avvisi.push('Parametro α di Britter-McQuaid fuori dal campo −1…1 delle correlazioni: risultato del modello di gas denso indicativo');
   if (Object.values(d).some(v => v !== null && !Number.isFinite(v))) avvisi.push('Una o più soglie sono superate oltre 10 km: oltre questa distanza i coefficienti di dispersione di Briggs non sono validati e l\'ipotesi di meteo costante per ore di trasporto non è realistica. Il valore è riportato come "> 10 km": valutare l\'estensione con la Tabella 3 ERG o con modelli specifici.');
-  if (scenario !== 'gas' && flash < 0.01) avvisi.push(`Alla temperatura di ${itn(T_C, 0)} °C il liquido è sotto o vicino alla temperatura di ebollizione (${itn(prop.Tb - 273.15, 1)} °C): non vaporizza per flash ma forma una pozza che evapora. Considerare tutto il rilascio in aria, come fa il calcolo, è molto cautelativo.`);
+  if (!comp && scenario !== 'gas' && flash < 0.01) avvisi.push(`Alla temperatura di ${itn(T_C, 0)} °C il liquido è sotto o vicino alla temperatura di ebollizione (${itn(prop.Tb - 273.15, 1)} °C): non vaporizza per flash ma forma una pozza che evapora. Considerare tutto il rilascio in aria, come fa il calcolo, è molto cautelativo.`);
   if (durata > 3600) avvisi.push(`Durata del rilascio stimata ${Math.round(durata / 60)} min: le soglie LC50 riferite a 30–60 min sono superate in durata, la zona I è sottostimata per esposizioni lunghe`);
   return {
     scenario: `Gas tossico liquefatto – meteo ${stabilita}${u_ms}`, sostanza,
     distanze_m: d, oltre_m: X_MAX_GL,
     zone_m: { I: d.LC50, II: d.IDLH, III: d.LOC },
+    interno: { Q, T_s, mNube },
     dettagli: {
       portata_kg_s: +Q.toFixed(3), durata_rilascio_min: +(durata / 60).toFixed(1), massa_kg: massa_kg,
-      tensione_vapore_bar: +(Psat / 1e5).toFixed(2), frazione_flash: +flash.toFixed(3),
+      [comp ? 'pressione_bar' : 'tensione_vapore_bar']: +(Psat / 1e5).toFixed(2), ...(comp ? {} : { frazione_flash: +flash.toFixed(3) }),
       densita_nube_kg_m3: +rho_s.toFixed(2), densita_aria_kg_m3: +rho_a.toFixed(2),
       criterio_BM_continuo: +pl.criterio.toFixed(3), criterio_BM_istantaneo: +nu.criterio.toFixed(3),
       ...Object.fromEntries(Object.keys(soglie_ppm).map(k => ['modello_' + k, gov[k]]))
@@ -371,7 +375,7 @@ function gasLiquefatto({ massa_kg, scenario = 'tot', d_mm = 10, h_m = 1, prop, s
     ipotesi: [
       contenitore,
       ipoSorg,
-      `Frazione di flash ${itn(flash * 100, 1)}% (bilancio adiabatico CCPS 1999); si assume tutto il rilasciato in aria come vapore e aerosol, senza ricaduta di liquido al suolo (cautelativo)`,
+      comp ? '' : `Frazione di flash ${itn(flash * 100, 1)}% (bilancio adiabatico CCPS 1999); si assume tutto il rilasciato in aria come vapore e aerosol, senza ricaduta di liquido al suolo (cautelativo)`,
       `Nube alla sorgente: vapore puro a ${itn(Ts_K - 273.15, 1)} °C, densità ${itn(rho_s, 2)} kg/m³ contro ${itn(rho_a, 2)} kg/m³ dell'aria; correzione non isoterma di Britter-McQuaid`,
       'Gas denso: correlazioni di Britter e McQuaid (Workbook on the Dispersion of Dense Gases, HSE 1988) nella forma di AIChE/CCPS (1999), terreno piano senza ostacoli, concentrazioni medie su 10 min, vento a 10 m; il modello non dipende dalla classe di stabilità',
       `Durata finita del rilascio (${itn(durata / 60, 1)} min): la concentrazione non supera né quella del pennacchio stazionario con la stessa portata né quella della nube istantanea con la stessa massa; per ciascun modello si adotta il minore dei due risultati`,
@@ -384,6 +388,126 @@ function gasLiquefatto({ massa_kg, scenario = 'tot', d_mm = 10, h_m = 1, prop, s
 function gasLiquefattoMeteo(param, meteo = METEO_PREDEFINITO) {
   return meteo.map(m => {
     const r = gasLiquefatto({ ...param, stabilita: m.stabilita, u_ms: m.u_ms, T_C: m.T_C ?? 20 });
+    r.avvisi = [...controllaMeteo(m), ...r.avvisi];
+    r.meteo = { stabilita: m.stabilita, vento_ms: m.u_ms, temperatura_C: m.T_C ?? 20, origine: meteo === METEO_PREDEFINITO ? 'predefinito' : 'inserito dall\'utente' };
+    return r;
+  });
+}
+
+// ============ 7. GAS INFIAMMABILI – jet fire, flash fire, esplosione da nube (VCE) ============
+// Jet fire: lunghezza di fiamma da API 521 (forma di Beychok, L = 0,00326 Q^0,478 con Q in W, potere calorifico inferiore),
+// sorgente puntiforme a metà fiamma (API 521), frazione irraggiata di Chamberlain (1987): F = 0,21 e^(−0,00323 u_eq) + 0,11
+function jetFire({ massa_kg, fase = 'gas', d_mm = 10, h_m = 1, P_bar = null, prop, T_C = 20, sostanza = '', contenitore = '' }) {
+  const comp = !!prop.compresso, Ta = T_C + 273.15, M = prop.pm / 1000;
+  if (comp && fase === 'liq') throw 'Gas compresso: scegliere il foro in fase gassosa';
+  const P = comp ? P_bar * 1e5 : psatBar(prop.ps, T_C) * 1e5;
+  const fo = portataForo({ fase, d_mm, P_Pa: P, T_K: Ta, prop, h_m });
+  const Q = fo.Q; if (!(Q > 0)) throw 'Con questa temperatura la pressione nel recipiente non supera quella atmosferica: il getto non si forma';
+  let F, ueq = null, uj = null;
+  if (fase === 'gas') {
+    const g = prop.gam, A = Math.PI * Math.pow(d_mm / 1000, 2) / 4;
+    let pj, Tj;
+    if (fo.critico) { Tj = Ta * 2 / (g + 1); pj = P * Math.pow(2 / (g + 1), g / (g - 1)); }
+    else { pj = P_ATM; Tj = Ta * Math.pow(P_ATM / P, (g - 1) / g); }
+    const rhoj = pj * M / (R_GAS * Tj); uj = Q / (rhoj * A);
+    ueq = uj + (pj - P_ATM) / (rhoj * uj);                           // Birch et al.: velocità equivalente del getto espanso
+    F = 0.21 * Math.exp(-0.00323 * ueq) + 0.11;
+  } else F = 0.32;                                                   // getto bifase: valore massimo della correlazione (cautelativo)
+  const QkW = Q * prop.dHc, L = 0.00326 * Math.pow(QkW * 1000, 0.478);
+  const s = SOGLIE.irraggiamento_kWm2, d = {};
+  for (const k of ['elevata_letalita', 'inizio_letalita', 'lesioni_irreversibili', 'lesioni_reversibili'])
+    d[k] = r1(Math.max(L, L / 2 + Math.sqrt(F * QkW / (4 * Math.PI * s[k]))));
+  const durata = massa_kg / Q, avvisi = [];
+  if (durata < 120) avvisi.push(`Il getto dura circa ${Math.max(1, Math.round(durata))} s: le soglie di irraggiamento stazionario presuppongono esposizioni prolungate, quindi le distanze sono cautelative`);
+  if (prop.avvisoJF) avvisi.push(prop.avvisoJF);
+  return {
+    scenario: 'Jet fire', sostanza,
+    distanze_m: d,
+    zone_m: { I: d.elevata_letalita, II: d.lesioni_irreversibili, III: d.lesioni_reversibili },
+    dettagli: { portata_kg_s: +Q.toFixed(3), durata_getto_min: +(durata / 60).toFixed(1), potenza_MW: +(QkW / 1000).toFixed(1), lunghezza_fiamma_m: +L.toFixed(1), frazione_irraggiata: +F.toFixed(3), ...(ueq ? { velocita_equivalente_ms: Math.round(ueq) } : {}) },
+    ipotesi: [
+      contenitore,
+      fase === 'liq'
+        ? `Foro di ${d_mm} mm in fase liquida: portata di Bernoulli con Cd 0,61 (CCPS 1999), Δp = tensione di vapore a ${T_C} °C meno la pressione atmosferica più un battente di ${h_m} m, portata costante (cautelativa)`
+        : `Foro di ${d_mm} mm in fase gassosa: efflusso isoentropico ${fo.critico ? 'critico (sonico)' : 'subcritico'} con Cd 1, pressione ${itn(P / 1e5, 1)} bar tenuta costante (cautelativo)`,
+      `Lunghezza di fiamma ${itn(L, 1)} m da API 521 nella forma di Beychok (L = 0,00326·Q^0,478, Q = portata × potere calorifico inferiore ${prop.dHc} kJ/kg, in W): correlazione per fiamme di torcia, cautelativa per i getti ad alta velocità`,
+      fase === 'liq'
+        ? 'Frazione di calore irraggiata 0,32 (valore massimo della correlazione di Chamberlain 1987, cautelativo per il getto bifase)'
+        : `Frazione di calore irraggiata ${itn(F, 2)} (Chamberlain 1987, F = 0,21·e^(−0,00323·u_eq) + 0,11, con velocità equivalente del getto espanso ${Math.round(ueq)} m/s secondo Birch et al.)`,
+      'Modello a sorgente puntiforme (API 521): emittente a metà fiamma, getto orizzontale diretto verso il bersaglio, trasmissività atmosferica 1 (cautelativo); entro la lunghezza della fiamma si assume sempre la zona di sicuro impatto',
+      'Distanze misurate dal punto di rilascio; soglie D.M. 9/5/2001 (irraggiamento stazionario); vento non considerato'
+    ].filter(Boolean),
+    avvisi
+  };
+}
+// Flash fire: dispersione (Britter-McQuaid + gaussiano, come per i gas tossici) fino a LFL e ½ LFL (D.M. 9/5/2001)
+function flashFire(param) {
+  const p = param.prop, lfl = p.LFL * 1e4;
+  const r = gasLiquefatto({ ...param, soglie_ppm: { LFL: lfl, mezzo_LFL: lfl / 2 } });
+  r.scenario = `Flash fire – meteo ${param.stabilita}${param.u_ms}`;
+  r.distanze_m = { elevata_letalita: r.distanze_m.LFL, inizio_letalita: r.distanze_m.mezzo_LFL };
+  r.zone_m = { I: r.distanze_m.elevata_letalita, II: r.distanze_m.inizio_letalita, III: undefined };
+  r.dettagli.modello_elevata_letalita = r.dettagli.modello_LFL; r.dettagli.modello_inizio_letalita = r.dettagli.modello_mezzo_LFL;
+  delete r.dettagli.modello_LFL; delete r.dettagli.modello_mezzo_LFL;
+  r.avvisi = r.avvisi.filter(a => !/LC50/.test(a)).map(a => /più leggero dell'aria/.test(a)
+    ? `Il gas (${itn(r.dettagli.densita_nube_kg_m3, 2)} kg/m³) è più leggero dell'aria: all'aperto tende a salire e a diluirsi. Il modello gaussiano al suolo usato qui non tiene conto del galleggiamento e sovrastima l'estensione al suolo della nube (cautelativo).`
+    : a);
+  r.ipotesi.push(`Soglie D.M. 9/5/2001 per il flash fire: elevata letalità al limite inferiore di infiammabilità (LFL ${itn(p.LFL, 1)}% in volume), inizio letalità a ½ LFL (${itn(p.LFL / 2, 2)}%). La soglia ½ LFL copre anche le fluttuazioni di concentrazione, perché i modelli danno valori medi. Fonte LFL: ${p.fonteLFL}`);
+  r.ipotesi.push('Per il flash fire le Linee guida PEE non fissano una soglia per la Zona III (da definire in sede di pianificazione)');
+  r.ipotesi.push('Innesco ritardato: la nube brucia quando ha raggiunto la massima estensione; distanze misurate dal punto di rilascio, sottovento');
+  return r;
+}
+function flashFireMeteo(param, meteo = METEO_PREDEFINITO) {
+  return meteo.map(m => {
+    const r = flashFire({ ...param, stabilita: m.stabilita, u_ms: m.u_ms, T_C: m.T_C ?? 20 });
+    r.avvisi = [...controllaMeteo(m), ...r.avvisi];
+    r.meteo = { stabilita: m.stabilita, vento_ms: m.u_ms, temperatura_C: m.T_C ?? 20, origine: meteo === METEO_PREDEFINITO ? 'predefinito' : 'inserito dall\'utente' };
+    return r;
+  });
+}
+// VCE: massa infiammabile dalla dispersione, metodo del TNT equivalente con rendimento η (EPA 40 CFR 68.25(e): 10% scenario peggiore)
+const E_TNT_kJkg = 4680;
+function vce(param) {
+  const p = param.prop, eta = param.eta ?? 0.1;
+  const ff = flashFire(param), xL = ff.distanze_m.elevata_letalita;
+  const { Q, mNube } = ff.interno;
+  let Mf, ipoM;
+  if (param.scenario === 'tot') { Mf = param.massa_kg; ipoM = `Massa nella nube: tutto il contenuto (${param.massa_kg} kg), come nello scenario peggiore di 40 CFR 68.25(e)`; }
+  else {
+    const xl = Number.isFinite(xL) && xL ? xL : 0;
+    Mf = Math.min(mNube, Q * xl / param.u_ms);
+    ipoM = `Massa nella nube infiammabile: portata × tempo di transito fino alla distanza del LFL (${Q.toFixed(2).replace('.', ',')} kg/s × ${Math.round(xl)} m / ${param.u_ms} m/s = ${itn(Mf, 1)} kg), al massimo la massa rilasciata`;
+  }
+  const W = eta * Mf * p.dHc / E_TNT_kJkg, k = Math.cbrt(Math.max(W, 1e-9));
+  const off = Number.isFinite(xL) && xL ? xL / 2 : 0;
+  const pr = R => kingeryBulmash_bar(R / k), s = SOGLIE.sovrappressione_bar, d = {};
+  for (const key of ['elevata_letalita', 'elevata_letalita_spazi_aperti', 'inizio_letalita', 'lesioni_irreversibili', 'lesioni_reversibili']) {
+    const R = W > 0 ? distanzaSoglia(pr, s[key], 0.2 * k, 198.5 * k) : null;
+    d[key] = R === null ? null : r1(R + off);
+  }
+  const avvisi = [...ff.avvisi.filter(a => !/10 km/.test(a))];
+  if (!(Mf > 0)) avvisi.push('La concentrazione non raggiunge il limite inferiore di infiammabilità: nessuna nube infiammabile, esplosione non possibile in queste condizioni');
+  return {
+    scenario: `Esplosione da nube (VCE) – meteo ${param.stabilita}${param.u_ms}`, sostanza: param.sostanza,
+    distanze_m: d,
+    zone_m: { I: d.elevata_letalita, II: d.lesioni_irreversibili, III: d.lesioni_reversibili },
+    dettagli: { massa_infiammabile_kg: +Mf.toFixed(1), rendimento: eta, massa_TNT_kg: +W.toFixed(1), distanza_LFL_m: Number.isFinite(xL) ? xL : null, centro_esplosione_m: Math.round(off) },
+    ipotesi: [
+      param.contenitore,
+      ff.ipotesi[1],
+      ipoM,
+      `Metodo del TNT equivalente: W = η × massa × potere calorifico (${p.dHc} kJ/kg) / ${E_TNT_kJkg} kJ/kg, con rendimento η = ${Math.round(eta * 100)}% (${eta >= 0.1 ? 'valore di 40 CFR 68.25(e) per lo scenario peggiore EPA' : 'valore tipico per nubi in campo aperto con poca congestione, CCPS'}) = ${itn(W, 1)} kg di TNT`,
+      'Sovrappressione di picco con le curve Kingery-Bulmash (1984) per esplosione emisferica al suolo, forma di Swisdak (1994). Nel campo vicino il metodo del TNT sovrastima le sovrappressioni di una deflagrazione',
+      `Centro dell'esplosione a metà della distanza del LFL (${Math.round(off)} m sottovento): le distanze sono misurate dal punto di rilascio (cautelativo sottovento)`,
+      `Dispersione per la nube infiammabile come per il flash fire (Britter-McQuaid e gaussiano, classe ${param.stabilita}, vento ${param.u_ms} m/s)`,
+      'Soglie D.M. 9/5/2001 (sovrappressione di picco); frammenti e proiezioni non calcolati'
+    ].filter(Boolean),
+    avvisi
+  };
+}
+function vceMeteo(param, meteo = METEO_PREDEFINITO) {
+  return meteo.map(m => {
+    const r = vce({ ...param, stabilita: m.stabilita, u_ms: m.u_ms, T_C: m.T_C ?? 20 });
     r.avvisi = [...controllaMeteo(m), ...r.avvisi];
     r.meteo = { stabilita: m.stabilita, vento_ms: m.u_ms, temperatura_C: m.T_C ?? 20, origine: meteo === METEO_PREDEFINITO ? 'predefinito' : 'inserito dall\'utente' };
     return r;
@@ -412,6 +536,6 @@ function gaussianoMeteo(param, meteo = METEO_PREDEFINITO) {
   });
 }
 
-const api = { SOGLIE, METEO_PREDEFINITO, poolFire, bleve, gaussiano, gaussianoMeteo, controllaMeteo, tnt, kingeryBulmash_bar, kinneyGraham_bar, fattoreVistaCilindro, evaporazioneEPA, gasLiquefatto, gasLiquefattoMeteo, bmPennacchio, bmNube, portataForo, psatBar };
+const api = { SOGLIE, METEO_PREDEFINITO, poolFire, bleve, gaussiano, gaussianoMeteo, controllaMeteo, tnt, kingeryBulmash_bar, kinneyGraham_bar, fattoreVistaCilindro, evaporazioneEPA, gasLiquefatto, gasLiquefattoMeteo, jetFire, flashFire, flashFireMeteo, vce, vceMeteo, bmPennacchio, bmNube, portataForo, psatBar };
 if (typeof module !== 'undefined') module.exports = api;
 if (typeof window !== 'undefined') window.MotoreAree = api;

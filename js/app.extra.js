@@ -1,6 +1,6 @@
 /* Estensioni dell'app installabile: mappa, GPS, impostazioni, report stampabile, offline */
 'use strict';
-const VERSIONE = '1.3-beta';
+const VERSIONE = '1.4-beta';
 
 // ---------- impostazioni (solo su questo dispositivo) ----------
 const FIRMATARIO_DEFAULT = { nome: 'Dott. Gianluca POMA', qualifica: 'Consulente Chimico di Porto' };
@@ -138,9 +138,10 @@ function legendaSoglie(r) {
   };
   const S = M.SOGLIE, p = DATA.props[cur.u] || {};
   let val = {}, grand = '';
-  if (/Pool fire/.test(r.scenario)) { grand = 'Irraggiamento termico stazionario'; val = { elevata_letalita: '12,5 kW/m²', inizio_letalita: '7 kW/m²', lesioni_irreversibili: '5 kW/m²', lesioni_reversibili: '3 kW/m²' }; }
+  if (/Pool fire|Jet fire/.test(r.scenario)) { grand = 'Irraggiamento termico stazionario'; val = { elevata_letalita: '12,5 kW/m²', inizio_letalita: '7 kW/m²', lesioni_irreversibili: '5 kW/m²', lesioni_reversibili: '3 kW/m²' }; }
   else if (/BLEVE/.test(r.scenario)) { grand = 'Irraggiamento termico variabile (dose termica della fireball)'; val = { elevata_letalita: 'raggio della fireball', inizio_letalita: '350 kJ/m²', lesioni_irreversibili: '200 kJ/m²', lesioni_reversibili: '125 kJ/m²' }; }
-  else if (/TNT/.test(r.scenario)) { grand = 'Sovrappressione di picco'; val = { elevata_letalita: '0,3 bar', elevata_letalita_spazi_aperti: '0,6 bar', inizio_letalita: '0,14 bar', lesioni_irreversibili: '0,07 bar', lesioni_reversibili: '0,03 bar' }; }
+  else if (/TNT|VCE/.test(r.scenario)) { grand = 'Sovrappressione di picco'; val = { elevata_letalita: '0,3 bar', elevata_letalita_spazi_aperti: '0,6 bar', inizio_letalita: '0,14 bar', lesioni_irreversibili: '0,07 bar', lesioni_reversibili: '0,03 bar' }; }
+  else if (/Flash fire/.test(r.scenario)) { grand = 'Concentrazione in aria del gas infiammabile'; val = { elevata_letalita: `LFL = ${String(p.LFL).replace('.', ',')}% in volume`, inizio_letalita: `½ LFL = ${String(p.LFL / 2).replace('.', ',')}% in volume` }; }
   else if (/gaussiana|Gas tossico liquefatto/.test(r.scenario)) { grand = 'Concentrazione in aria della sostanza tossica'; val = { LC50: `${p.LC50} ppm`, IDLH: `${p.IDLH} ppm`, LOC: `${p.LOC} ppm` }; }
   const righe = Object.keys(r.distanze_m || {}).map(k => ({ chiave: k, nome: SIG[k] ? SIG[k].split(':')[0] : k, valore: val[k] || '', distanza: r.distanze_m[k], significato: SIG[k] ? (t => t.charAt(0).toUpperCase() + t.slice(1))(SIG[k].split(': ').slice(1).join(': ')) : '' }));
   return { grandezza: grand, righe };

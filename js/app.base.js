@@ -13,7 +13,7 @@ function mostraRicerca() {
   box.querySelectorAll('button').forEach(b => b.onclick = () => { $('onu').value = b.dataset.u; box.innerHTML = ''; $('onu').dispatchEvent(new Event('input')); });
 }
 
-const NOMI_MOD = { PF: 'Pool fire', BL: 'BLEVE / fireball', GA: 'Dispersione tossica', GL: 'Gas tossico liquefatto', TNT: 'Esplosione (TNT equivalente)', ERG: 'Solo distanze ERG', NOS: 'Nome tecnico necessario' };
+const NOMI_MOD = { PF: 'Pool fire', BL: 'BLEVE / fireball', GA: 'Dispersione tossica', GL: 'Gas tossico liquefatto', JF: 'Jet fire', FF: 'Flash fire', VCE: 'Esplosione da nube (VCE)', TNT: 'Esplosione (TNT equivalente)', ERG: 'Solo distanze ERG', NOS: 'Nome tecnico necessario' };
 
 $('onu').addEventListener('input', () => {
   mostraRicerca();
@@ -107,6 +107,7 @@ function opzioniImb(gas, solido) {
   if (gas) {
     op.push(['collo', 'Bombola singola']);
     if (ok('T')) op.push(['cist', 'Cisterna / tank-container']);
+    else if (CIST_SOLO_TERRA[cur.u]) op.push(['cist', CIST_SOLO_TERRA[cur.u]]);
     op.push(['cont', 'Container o pacco con più bombole']);
   } else if (o) {
     op.push(['collo', 'Collo singolo']);
@@ -126,7 +127,7 @@ function opzioniImb(gas, solido) {
   }
   op.push(['altro', 'Altro']);
   const def = gas ? 'collo' : ['ibc', 'fusto', 'collo'].find(k => op.some(x => x[0] === k));
-  const esclusi = gas ? (ok('T') ? '' : 'cisterne') : o ? '' : [!ok('I') && 'IBC', !ok('T') && 'cisterne mobili', !ok('L') && 'grandi imballaggi'].filter(Boolean).join(', ');
+  const esclusi = gas ? (ok('T') || CIST_SOLO_TERRA[cur.u] ? '' : 'cisterne') : o ? '' : [!ok('I') && 'IBC', !ok('T') && 'cisterne mobili', !ok('L') && 'grandi imballaggi'].filter(Boolean).join(', ');
   return `<select id="imbe">${op.map(([v, t]) => `<option value="${v}" ${v === def ? 'selected' : ''}>${t}</option>`).join('')}</select>` +
     `<p class="small">Imballaggi proposti in base a quelli ammessi dalla DGL IMDG per questa voce (colonne 8, 10 e 13)${esclusi ? ': non ammessi ' + esclusi : ''}.</p>`;
 }
@@ -165,6 +166,8 @@ function buildFields() {
       <p class="small">Soglie: LC50 30 min ${p.LC50} ppm · IDLH ${p.IDLH} ppm · LOC ${p.LOC} ppm</p>`;
   } else if (m === 'GL') {
     h = campiGL(p);
+  } else if (m === 'JF' || m === 'FF' || m === 'VCE') {
+    h = campiGF(p, m);
   } else if (cur.classe.startsWith('1.')) {
     h = explFields(m === 'TNT', p);
   } else {
@@ -173,20 +176,24 @@ function buildFields() {
   }
   $('fields').innerHTML = h;
   $('inbox').classList.remove('hide');
-  $('meteobox').classList.toggle('hide', m !== 'GA' && m !== 'GL');
+  $('meteobox').classList.toggle('hide', !['GA', 'GL', 'JF', 'FF', 'VCE'].includes(m));
   if (p.fonte && m !== 'BL') $('fields').insertAdjacentHTML('beforeend', `<p class="small">Fonti dei dati: ${p.fonte}.</p>`);
   $('calc').classList.remove('hide');
   bindExtra();
   const imb = $('imb');
   if (imb) imb.addEventListener('change', () => { const v = +imb.value; if (v) { if ($('vol')) $('vol').value = v; if ($('massa')) $('massa').value = v; } });
   if (m === 'GL') bindGL();
+  if (m === 'JF' || m === 'FF' || m === 'VCE') bindGF(p);
 }
 
 // ---------- gas tossici liquefatti (V2, gruppo 1) ----------
+// cisterne ammesse solo nel trasporto terrestre (scelta di Luca, 19/11/2026)
+const CIST_SOLO_TERRA = { '1050': 'Cisterna stradale o ferroviaria (solo ADR/RID: l\'IMDG non ammette cisterne mobili per UN 1050)' };
 function contenitoriGL() {
   const im = cur.im || 'G', op = [];
   if (im.includes('G')) op.push(['bomb', 'Bombola', 50, 10], ['ton', 'Recipiente a pressione da 1 t (fusto a pressione)', 1000, 10]);
   if (im.includes('T')) op.push(['cist', 'Cisterna / tank-container', 20000, 25]);
+  else if (CIST_SOLO_TERRA[cur.u]) op.push(['cist', CIST_SOLO_TERRA[cur.u], 20000, 25]);
   op.push(['altro', 'Altro recipiente a pressione', 1000, 10]);
   return op;
 }
@@ -205,6 +212,38 @@ function bindGL() {
   const agg = () => { w.style.visibility = s.value === 'tot' ? 'hidden' : 'visible'; };
   c.addEventListener('change', () => { const o = contenitoriGL().find(x => x[0] === c.value); if (o) { $('massa').value = o[2]; $('dforo').value = o[3]; } });
   s.addEventListener('change', agg); agg();
+}
+
+// ---------- gas infiammabili (V2, gruppo 2) ----------
+function contenitoriGF(p) {
+  const im = cur.im || 'G';
+  return p.contenitori.filter(c => c[0] !== 'cist' || im.includes('T'));
+}
+const massaCompresso = (p, V_L, P_bar) => P_bar * 1e5 * (V_L / 1000) * (p.pm / 1000) / (interpLin(p.Z, P_bar) * 8.314462618 * 293.15);
+function campiGF(p, m) {
+  const op = contenitoriGF(p), def = p.compresso ? op[1] : (op.find(o => o[0] === 'ton') || op[0]);
+  const sc = [m !== 'JF' && ['tot', 'Rilascio totale in 10 minuti (rottura del recipiente)'],
+    !p.compresso && ['liq', 'Perdita da foro in fase liquida (foro sotto il pelo del liquido)'],
+    ['gas', p.compresso ? 'Perdita da foro o da valvola' : 'Perdita da foro in fase gassosa (valvola o foro in alto)']].filter(Boolean);
+  const q = p.compresso
+    ? `<div class="row">${f('capL', 'Capacità del recipiente (L)', def[2])}${f('pbar', 'Pressione (bar)', p.Pdef)}</div><p class="small" id="gfmassa"></p>`
+    : `<div class="row">${f('massa', 'Contenuto del recipiente (kg)', def[2])}</div>`;
+  const nota = { JF: 'Soglie: irraggiamento stazionario 12,5 · 7 · 5 · 3 kW/m² (D.M. 9/5/2001). Del meteo si usa solo la temperatura.',
+    FF: `Soglie: LFL ${String(p.LFL).replace('.', ',')}% (elevata letalità) e ½ LFL (inizio letalità), D.M. 9/5/2001.`,
+    VCE: 'Soglie: sovrappressione 0,3 (0,6 in spazi aperti) · 0,14 · 0,07 · 0,03 bar (D.M. 9/5/2001).' }[m];
+  return `<label>Recipiente</label><select id="glc">${op.map(([v, t]) => `<option value="${v}" ${v === def[0] ? 'selected' : ''}>${t}</option>`).join('')}</select>
+    <label>Scenario di rilascio</label><select id="gls">${sc.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}</select>
+    ${q}<div class="row"><div id="glfw">${f('dforo', 'Diametro del foro (mm)', def[3])}</div>${m === 'VCE' ? `<div><label for="eta">Rendimento dell'esplosione</label><select id="eta"><option value="0.1">10% – scenario peggiore EPA, area congestionata</option><option value="0.03">3% – campo aperto, poca congestione</option></select></div>` : ''}</div>
+    <p class="small">Sostanza di calcolo: ${p.nome}. ${nota} La temperatura del contenuto è quella dell'aria indicata nel meteo.</p>`;
+}
+function bindGF(p) {
+  const c = $('glc'), s = $('gls'), w = $('glfw');
+  const aggM = () => { if (p.compresso) { const V = num('capL'), P = num('pbar'); $('gfmassa').textContent = V > 0 && P > 0 ? `Massa di gas: ${massaCompresso(p, V, P).toFixed(1).replace('.', ',')} kg (a 20 °C, fattore di compressibilità da CoolProp)` : ''; } };
+  const agg = () => { w.style.visibility = s.value === 'tot' ? 'hidden' : 'visible'; };
+  c.addEventListener('change', () => { const o = contenitoriGF(p).find(x => x[0] === c.value); if (o) { $(p.compresso ? 'capL' : 'massa').value = o[2]; $('dforo').value = o[3]; aggM(); } });
+  if (p.compresso) { $('capL').addEventListener('input', aggM); $('pbar').addEventListener('input', aggM); }
+  s.addEventListener('change', () => { agg(); if ($('eta')) $('eta').value = s.value === 'tot' ? '0.1' : '0.03'; });
+  agg(); aggM();
 }
 
 $('mPre').onclick = () => { meteoUser = false; $('mPre').classList.add('on'); $('mUser').classList.remove('on'); $('meteoUser').classList.add('hide'); };
@@ -246,13 +285,41 @@ $('calc').onclick = () => {
       const ms = num('massa'); if (!ms || ms <= 0) throw 'Inserire il contenuto del recipiente';
       const sc = $('gls').value, dmm = num('dforo') || 10;
       if (sc !== 'tot' && (dmm <= 0 || dmm > 300)) throw 'Diametro del foro fuori campo (1–300 mm)';
-      const nomeC = { bomb: 'bombola', ton: 'recipiente a pressione da 1 t', cist: 'cisterna / tank-container', altro: 'recipiente a pressione' }[$('glc').value];
+      const nomeC = { bomb: 'bombola', ton: 'recipiente a pressione da 1 t', cist: CIST_SOLO_TERRA[cur.u] ? 'cisterna stradale o ferroviaria (trasporto terrestre ADR/RID; l\'IMDG non ammette cisterne mobili per questa voce)' : 'cisterna / tank-container', altro: 'recipiente a pressione' }[$('glc').value];
       const meteo = meteoUser ? [{ stabilita: $('stab').value, u_ms: num('vento') || 1, T_C: num('temp') ?? 20 }] : M.METEO_PREDEFINITO;
       risultati = M.gasLiquefattoMeteo({ massa_kg: ms, scenario: sc, d_mm: dmm, h_m: $('glc').value === 'cist' ? 2 : 1, prop: p,
         soglie_ppm: { LC50: p.LC50, IDLH: p.IDLH, LOC: p.LOC }, sostanza: `${sost} (${p.nome})`,
         contenitore: `Recipiente: ${nomeC}, contenuto ${ms} kg di ${p.nome} liquefatto sotto pressione alla temperatura dell'aria`,
         nota_soglie: `Soglie: LC50 = ${p.LC50} ppm (ratto, ${p.LC50_t}, senza correzione temporale); IDLH ${p.IDLH} ppm (NIOSH); LOC = IDLH/10 = ${p.LOC} ppm. Fonti: ${p.fonte}` }, meteo);
       if (p.avviso) risultati.forEach(r => r.avvisi = [p.avviso, ...(r.avvisi || [])]);
+    } else if (m === 'JF' || m === 'FF' || m === 'VCE') {
+      const sc = $('gls').value, dmm = num('dforo') || 10, c = $('glc').value;
+      if (sc !== 'tot' && (dmm <= 0 || dmm > 300)) throw 'Diametro del foro fuori campo (1–300 mm)';
+      let ms, Pb = null, cont;
+      const nomeC = (contenitoriGF(p).find(x => x[0] === c) || [, 'recipiente'])[1].toLowerCase();
+      if (p.compresso) {
+        const V = num('capL'); Pb = num('pbar');
+        if (!V || V <= 0) throw 'Inserire la capacità del recipiente';
+        if (!Pb || Pb <= 1 || Pb > 350) throw 'Pressione fuori campo (1–350 bar)';
+        ms = +massaCompresso(p, V, Pb).toFixed(2);
+        cont = `Recipiente: ${nomeC}, capacità ${V} L a ${Pb} bar, ${String(ms).replace('.', ',')} kg di ${p.nome} (fattore di compressibilità a 20 °C da CoolProp)`;
+      } else {
+        ms = num('massa'); if (!ms || ms <= 0) throw 'Inserire il contenuto del recipiente';
+        cont = `Recipiente: ${nomeC}, contenuto ${ms} kg di ${p.nome} liquefatto sotto pressione alla temperatura dell'aria`;
+      }
+      const meteo = meteoUser ? [{ stabilita: $('stab').value, u_ms: num('vento') || 1, T_C: num('temp') ?? 20 }] : M.METEO_PREDEFINITO;
+      const base = { massa_kg: ms, scenario: sc, d_mm: dmm, h_m: c === 'cist' ? 2 : 1, P_bar: Pb, prop: p, sostanza: `${sost} (${p.nome})`, contenitore: cont };
+      if (m === 'JF') {
+        const r = M.jetFire({ ...base, fase: sc, T_C: meteoUser ? (num('temp') ?? 20) : 20 });
+        r.ipotesi.push(`Temperatura del contenuto ${meteoUser ? (num('temp') ?? 20) : 20} °C. Dati della sostanza: ${p.fonte}`);
+        risultati = [r];
+      } else if (m === 'FF') {
+        risultati = M.flashFireMeteo(base, meteo);
+        risultati.forEach(r => r.ipotesi.push('Dati della sostanza: ' + p.fonte));
+      } else {
+        risultati = M.vceMeteo({ ...base, eta: +$('eta').value }, meteo);
+        risultati.forEach(r => r.ipotesi.push('Dati della sostanza: ' + p.fonte));
+      }
     } else if (m === 'TNT') {
       const { nem, origine } = leggiNEM();
       const fatt = num('fatt') || p.fattore, imbx = $('imbx').value;
@@ -340,7 +407,7 @@ function tipoSpandimento(imbe, q) {
 const notaSolidi = () => '';
 function isoNumero(g) { return typeof g.isolamento_m === 'number' ? g.isolamento_m : (statoSolido() ? 25 : 50); }
 const isoTxt = g => typeof g.isolamento_m === 'number' ? g.isolamento_m + ' m' : String(g.isolamento_m).replace(/(\d+) liquidi/, '$1 m liquidi').replace(/(\d+) solidi/, '$1 m solidi');
-const fmt = v => v === null ? 'non raggiunta' : !Number.isFinite(v) ? `> ${((risultati[tabSel] && risultati[tabSel].oltre_m) || 50000) / 1000} km` : v + ' m';
+const fmt = v => v === undefined ? 'non fissata (da definire nel piano di emergenza)' : v === null ? 'non raggiunta' : !Number.isFinite(v) ? `> ${((risultati[tabSel] && risultati[tabSel].oltre_m) || 50000) / 1000} km` : v + ' m';
 
 function mostra() {
   $('out').style.display = 'block';
