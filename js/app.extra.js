@@ -198,6 +198,7 @@ function testoReport() {
   { const d = defScenario(r); if (d) t += `\nDEFINIZIONE DELLO SCENARIO – ${d[1]}\n${d[2]}\n`; }
   t += fumiTesto(r.fumi);
   t += qdTesto(r.qd);
+  t += `\nRAPPRESENTAZIONE GRAFICA E VENTO\n${notaVento(r).map(x => '- ' + x).join('\n')}\n`;
   t += `\nIPOTESI\n${r.ipotesi.map(x => '- ' + x).join('\n')}\n`;
   if (r.meteo) t += `- Meteo ${r.meteo.origine}: ${r.meteo.stabilita}, ${r.meteo.vento_ms} m/s, ${r.meteo.temperatura_C} °C\n`;
   if (r.avvisi && r.avvisi.length) t += `\nAVVISI\n${r.avvisi.map(x => '- ' + x).join('\n')}\n`;
@@ -236,7 +237,8 @@ $('print').onclick = () => {
       <p class="nota">"Non raggiunta": la soglia non è superata nemmeno in prossimità della sorgente.</p>`;
   }
   if (r.ergCaso) h += `<h2>Distanza ERG da applicare</h2><p>${r.ergCaso.dist} m${r.ergCaso.dir ? ' ' + esc(r.ergCaso.dir) : ''} – ${esc(r.ergCaso.etichetta)}. ${esc(r.ergCaso.motivo)}</p>`;
-  h += `<div class="schema"><h2>Schema delle zone</h2>${$('graf').innerHTML}<div class="nota"> Cerchi colorati: ${r.soloERG ? (r.ergCaso && r.ergCaso.prot_km ? `isolamento ${r.ergCaso.dist} m (arancio) e protezione sottovento ${String(r.ergCaso.prot_km).replace('.', ',')} km (giallo, rappresentata come cerchio: inviluppo cautelativo per direzione del vento incerta)` : 'distanza ERG da applicare') : 'Zona I (rosso), Zona II (arancio), Zona III (giallo)'}. Tratteggio: isolamento iniziale ERG. Barra: scala grafica.${r.meteo ? ' Per la dispersione tossica le distanze sono sottovento e sono rappresentate come cerchi (inviluppo cautelativo per direzione del vento incerta).' : ''}</div></div>`;
+  h += `<div class="schema"><h2>Schema delle zone</h2>${$('graf').innerHTML}<div class="nota">${esc($('grafnote').textContent)} Barra: scala grafica.</div></div>`;
+  h += `<h2>Rappresentazione grafica e vento</h2><ul>${notaVento(r).map(x => `<li>${esc(x)}</li>`).join('')}</ul>`;
   if (r.qd) h += `<h2>Distanze in funzione della NEM (DoD)</h2>${qdHTML(r.qd, esc).replace(/class="small"/g, 'class="nota"').replace(/class="ip"/g, '').replace(/class="warn"/g, 'class="nota"')}`;
   if (r.fumi) h += `<h2>Fumi tossici di combustione</h2>${fumiHTML(r.fumi, esc).replace(/class="small"/g, 'class="nota"').replace(/class="ip"/g, '')}`;
   h += `<h2>Ipotesi di calcolo</h2><ul>${r.ipotesi.map(x => `<li>${esc(x)}</li>`).join('')}${r.meteo ? `<li>Meteo ${r.meteo.origine}: ${r.meteo.stabilita}, ${r.meteo.vento_ms} m/s, ${r.meteo.temperatura_C} °C</li>` : ''}</ul>`;

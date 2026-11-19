@@ -344,6 +344,36 @@ function angoloConfidenza(u) {
   if (u <= 10 / 3.6) return { cerchio: true, gradi: 180, fedele: false, testo: `Linee di confidenza: con vento di ${String(u).replace('.', ',')} m/s (≤ 10 km/h) la direzione è poco prevedibile e la zona è disegnata come cerchio di raggio pari alla distanza (modello NATO ATP-45). Metodo NON fedele ad ALOHA: il coefficiente della formula di ALOHA per l'angolo di confidenza non è stato verificato sul testo originale, quindi si usa un angolo fisso dichiarato.` };
   return { cerchio: false, gradi: 30, fedele: false, testo: `Linee di confidenza: impronta ruotata di ±30° attorno alla direzione del vento (semiampiezza del settore del modello NATO ATP-45 per vento oltre 10 km/h). Metodo NON fedele ad ALOHA: il coefficiente della formula di ALOHA per l'angolo di confidenza non è stato verificato sul testo originale, quindi si usa un angolo fisso dichiarato.` };
 }
+// Nota sulla rappresentazione grafica e sulla dipendenza dal vento, per ogni scenario (richiesta di Luca, 19/11/2026)
+const EFFETTO = [[/Pool fire|Jet fire/, 'l\'irraggiamento termico stazionario non dipende'], [/BLEVE/, 'l\'irraggiamento della fireball non dipende'], [/TNT/, 'la sovrappressione dell\'esplosione non dipende'], [/Distanze ERG/, 'le distanze fisse dell\'ERG per questa voce non dipendono']];
+function notaVento(r) {
+  const out = [], dv = r.dirVento, gradi = d => `${Math.round(d)}° (${nomeSettore(d)})`;
+  const verso = dv != null ? `vento da ${gradi(dv)}, la nube va verso ${gradi((dv + 180) % 360)}` : '';
+  const ALOHA_TXT = a => `Rappresentazione scelta: stile ALOHA. ${a.testo}`;
+  const dip = ventoDipendente(r) || /VCE/.test(r.scenario || '');
+  if (/VCE/.test(r.scenario || '')) {
+    out.push('Dipendenza dal vento: la sovrappressione si propaga in tutte le direzioni dal centro dell\'esplosione e non dipende dal vento; dal vento dipende invece la posizione della nube infiammabile, e quindi del centro dell\'esplosione.');
+    out.push(dv != null ? `Con ${verso}, i cerchi sono centrati sul centro dell'esplosione, spostato sottovento a metà della distanza del LFL (${r.dettagli.centro_esplosione_m} m).` : 'Direzione del vento non indicata: i cerchi sono centrati sul punto di rilascio e le distanze comprendono lo spostamento sottovento del centro dell\'esplosione, quindi valgono in tutte le direzioni (inviluppo cautelativo).');
+    if (r.rapprScelta === 'aloha') out.push('La rappresentazione stile ALOHA scelta riguarda le impronte delle nubi tossiche o infiammabili: per la sovrappressione non cambia il disegno.');
+  } else if (dip) {
+    out.push(r.soloERG ? 'Dipendenza dal vento: la protezione sottovento dell\'ERG dipende dalla direzione del vento.' : 'Dipendenza dal vento: lo scenario è una nube trasportata dal vento, quindi le zone si estendono sottovento.');
+    if (dv == null) out.push(r.meteoReale ? 'Direzione del vento non indicata: le distanze sottovento sono disegnate come cerchi, cioè l\'inviluppo cautelativo di tutte le direzioni possibili.' : 'Meteo predefinito, senza direzione del vento: le distanze sottovento sono disegnate come cerchi, cioè l\'inviluppo cautelativo di tutte le direzioni possibili.');
+    else if (r.rappr === 'aloha') out.push(`Con ${verso}: per ogni soglia è disegnata l'impronta calcolata della nube (isopleta con profilo laterale gaussiano, semilarghezza σy·√(2·ln(C/soglia)); nel campo vicino si usa la larghezza della nube densa di Britter-McQuaid).`, ALOHA_TXT(angoloConfidenza(r.meteo.vento_ms)));
+    else {
+      out.push(`Con ${verso}: zone disegnate sottovento con la forma della zona di azione protettiva ERG 2024, un quadrato lungo quanto la distanza e largo altrettanto, metà per lato rispetto alla direzione del vento, che copre anche le oscillazioni della direzione.`);
+      if (r.rapprScelta === 'aloha' && r.soloERG) out.push('È stata scelta la rappresentazione stile ALOHA, ma per le distanze delle tabelle ERG si usa sempre il quadrato, che è la forma prescritta dall\'ERG.');
+      else out.push('Rappresentazione scelta: zona di azione protettiva ERG (predefinita).');
+    }
+  } else {
+    const e = (EFFETTO.find(([re]) => re.test(r.scenario || '')) || [, 'questo effetto non dipende'])[1];
+    out.push(`Dipendenza dal vento: ${e} dalla direzione del vento, quindi le zone sono cerchi centrati sul punto dell'evento${dv != null ? ` anche se è indicata la direzione (${verso})` : ''}.`);
+    if (r.rapprScelta === 'aloha') out.push(`È stata scelta la rappresentazione stile ALOHA: si applica solo alle nubi disperse dal vento e per questo scenario non cambia il disegno. ${angoloConfidenza(r.meteo ? r.meteo.vento_ms : (num('vento') || 1)).testo}`);
+    else if (r.meteoReale && dv != null) out.push('Rappresentazione scelta: zona di azione protettiva ERG (predefinita); per questo scenario non cambia il disegno.');
+  }
+  if (r.fumi && r.fumi.righe) out.push('I fumi tossici di combustione dipendono invece dal vento: le loro distanze sono sottovento e sono riportate nella tabella dedicata, senza disegno sulla mappa.');
+  if (r.qd) out.push('Le distanze DoD per gli esplosivi non dipendono dal vento e sono disegnate come cerchi.');
+  return out;
+}
 const ZONA_SOGLIA = { I: ['LC50', 'elevata_letalita'], II: ['IDLH', 'inizio_letalita'], III: ['LOC'] };
 
 // ---------- geometria delle zone orientate con il vento ----------
@@ -499,10 +529,10 @@ $('calc').onclick = () => {
       }
       risultati = [{ scenario: 'Distanze ERG 2024', sostanza: sost, soloERG: true, ergCaso: caso, ipotesi: ipo, avvisi: avvisiE }];
     }
-    { const dv = dirVentoScelta();
-      if (dv !== null) risultati.forEach(r => { r.dirVento = dv; r.rappr = $('rappr').value === 'aloha' && r.impronta && !r.soloERG && !/VCE/.test(r.scenario) ? 'aloha' : 'erg';
-        if (ventoDipendente(r) && r.rappr === 'aloha') { const a = angoloConfidenza(r.meteo.vento_ms); r.ipotesi.push(`Vento da ${String(Math.round(dv))}° (${nomeSettore(dv)}), la nube va verso ${String(Math.round((dv + 180) % 360))}° (${nomeSettore((dv + 180) % 360)}). Rappresentazione stile ALOHA: per ogni soglia è disegnata l'impronta calcolata della nube (isopleta con profilo laterale gaussiano: semilarghezza σy·√(2·ln(C/soglia)), con la larghezza della nube densa di Britter-McQuaid nel campo vicino). ${a.testo}`); }
-        else if (ventoDipendente(r)) r.ipotesi.push(`Vento da ${String(Math.round(dv))}° (${nomeSettore(dv)}), la nube va verso ${String(Math.round((dv + 180) % 360))}° (${nomeSettore((dv + 180) % 360)}). Su mappa e schema le zone che dipendono dal vento sono disegnate sottovento con la forma della zona di azione protettiva ERG 2024: un quadrato lungo quanto la distanza e largo altrettanto, metà per lato rispetto alla direzione del vento, che copre anche le oscillazioni della direzione`); }); }
+    { const mv = meteoUser && !$('meteobox').classList.contains('hide');
+      const dv = mv ? dirVentoScelta() : null, rs = mv ? $('rappr').value : 'erg';
+      risultati.forEach(r => { r.meteoReale = mv; r.rapprScelta = rs;
+        if (dv !== null) { r.dirVento = dv; r.rappr = rs === 'aloha' && r.impronta && !r.soloERG && !/VCE/.test(r.scenario) ? 'aloha' : 'erg'; } }); }
     if (cur.classe.startsWith('1.')) {
       const { nem } = leggiNEM(), na = num('nemart');
       const qd = M.qdDoD({ div: cur.classe, nem_kg: nem, nemArticolo_kg: na && na > 0 ? na : null, ferrovia: !!($('ferro') && $('ferro').checked), grossoCalibro: !!($('calibro') && $('calibro').checked) });
@@ -597,7 +627,7 @@ function mostra() {
     t += `<tr><td colspan="2" class="small">${c.motivo}</td></tr>`;
   }
   $('tab').innerHTML = t + '</table>';
-  $('ip').innerHTML = r.ipotesi.map(x => `<li>${x}</li>`).join('') + (r.meteo ? `<li>Meteo ${r.meteo.origine}: ${r.meteo.stabilita}, ${r.meteo.vento_ms} m/s, ${r.meteo.temperatura_C} °C</li>` : '');
+  $('ip').innerHTML = r.ipotesi.map(x => `<li>${x}</li>`).join('') + notaVento(r).map(x => `<li>${x}</li>`).join('') + (r.meteo ? `<li>Meteo ${r.meteo.origine}: ${r.meteo.stabilita}, ${r.meteo.vento_ms} m/s, ${r.meteo.temperatura_C} °C</li>` : '');
   $('avv').innerHTML = (r.avvisi || []).map(a => `<div class="warn">${a}</div>`).join('');
   $('ergbox').innerHTML = ergHTML(g, r);
   $('out').scrollIntoView({ behavior: 'smooth' });
