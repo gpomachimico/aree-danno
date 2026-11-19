@@ -148,7 +148,7 @@ function buildFields() {
   if (m === 'PF') {
     h = `<label>Imballaggio</label>${opzioniImbLiquidi().html}
       <div class="row">${f('vol', 'Volume rilasciato (L)', opzioniImbLiquidi().vol)}${f('area', 'Area bacino (m²) – vuoto = non confinato', '', 'placeholder="non confinato"')}</div>
-      <p class="small">Sostanza di calcolo: ${p.nome}</p>`;
+      <p class="small">Sostanza di calcolo: ${p.nome}</p>${campiFumi(p)}`;
   } else if (m === 'BL') {
     const rho = p.rho_liq || 0.5, mk = V => Math.round(V * rho * 0.8 / 100) * 100;
     h = `<label>Contenitore</label><select id="imb"><option value="${mk(1000)}">Bombola/serbatoio 1000 L (~${mk(1000)} kg)</option><option value="${mk(22000)}" selected>Serbatoio 22 000 L (~${mk(22000)} kg)</option><option value="${mk(42000)}">Tank 42 000 L (~${mk(42000)} kg)</option><option value="0">Altro (inserisci massa)</option></select>
@@ -176,7 +176,7 @@ function buildFields() {
   }
   $('fields').innerHTML = h;
   $('inbox').classList.remove('hide');
-  $('meteobox').classList.toggle('hide', !['GA', 'GL', 'JF', 'FF', 'VCE'].includes(m));
+  $('meteobox').classList.toggle('hide', !(['GA', 'GL', 'JF', 'FF', 'VCE'].includes(m) || (m === 'PF' && p.fumi && p.fumi.tipo !== 'qual')));
   if (p.fonte && m !== 'BL') $('fields').insertAdjacentHTML('beforeend', `<p class="small">Fonti dei dati: ${p.fonte}.</p>`);
   $('calc').classList.remove('hide');
   bindExtra();
@@ -212,6 +212,80 @@ function bindGL() {
   const agg = () => { w.style.visibility = s.value === 'tot' ? 'hidden' : 'visible'; };
   c.addEventListener('change', () => { const o = contenitoriGL().find(x => x[0] === c.value); if (o) { $('massa').value = o[2]; $('dforo').value = o[3]; } });
   s.addEventListener('change', agg); agg();
+}
+
+// ---------- fumi tossici di combustione ----------
+function campiFumi(p) {
+  const fu = p.fumi; if (!fu) return '';
+  if (fu.tipo === 'zolfo') return `<div class="row">${f('zolfo', 'Zolfo nel prodotto (% in massa) – facoltativo', '', 'placeholder="non noto"')}</div>
+    <p class="small">Con il tenore di zolfo l'app calcola anche l'anidride solforosa nei fumi (valori tipici: ${fu.tipico}). Il meteo serve per i fumi.</p>`;
+  if (fu.tipo === 'calc') return `<p class="small">I fumi contengono ${fu.specie}: l'app ne calcola la dispersione. Il meteo serve per i fumi.</p>`;
+  return `<p class="small">Fumi di combustione: ${fu.specie} (valutazione solo qualitativa).</p>`;
+}
+const STAZ = { PF: 'pool fire', JF: 'jet fire' };
+// aggiunge a ogni risultato la valutazione dei fumi tossici; extra = { kgs, Qc_kW } per gli incendi stazionari, { massa_kg } per gli altri
+function aggiungiFumi(m, p, ris, meteo) {
+  const fu = p.fumi; if (!fu) return;
+  const rif = fu.rif ? DATA.props[fu.rif] : null;
+  for (const r of ris) {
+    const o = { specie: fu.specie, tipo: fu.tipo, ipotesi: [] };
+    if (fu.tipo === 'qual') { o.esito = 'qualitativa'; o.testo = fu.motivo; r.fumi = o; continue; }
+    let resa = fu.resa, origine = fu.reazione;
+    if (fu.tipo === 'zolfo') {
+      const S = num('zolfo');
+      if (!(S > 0)) { o.esito = 'non eseguita'; o.testo = `Valutazione non eseguita: il tenore di zolfo del ${fu.nomeProd} non è stato indicato (valori tipici: ${fu.tipico}). Lo zolfo brucia ad anidride solforosa: inserendo il tenore l'app calcola la dispersione dell'SO2.`; r.fumi = o; continue; }
+      if (S > 6) throw 'Tenore di zolfo fuori campo (0–6%)';
+      resa = S / 100 * 64.064 / 32.06;
+      origine = `Zolfo ${String(S).replace('.', ',')}% in massa (dato inserito dall'utente), convertito tutto in SO2: ${resa.toFixed(4).replace('.', ',')} kg di SO2 per kg bruciato (S + O2 → SO2, cautelativo)`;
+    }
+    const sogl = { LC50: rif.LC50, IDLH: rif.IDLH, LOC: rif.LOC };
+    o.soglie = sogl;
+    o.ipotesi.push(origine, `Soglie: LC50 ${rif.LC50} ppm (ratto, ${rif.LC50_t}), IDLH ${rif.IDLH} ppm, LOC ${rif.LOC} ppm (stessi valori e fonti delle voci UN ${fu.rif})`);
+    if (STAZ[m]) {
+      const kgs = m === 'PF' ? r.dettagli.HRR_MW * 1000 / p.dHc : r.dettagli.portata_kg_s;
+      const frad = m === 'PF' ? 0.3 : r.dettagli.frazione_irraggiata, Qc = (1 - frad) * kgs * p.dHc;
+      o.esito = 'calcolata';
+      o.portata_kgs = +(resa * kgs).toFixed(4);
+      o.righe = M.fumiIncendio({ portata_kgs: resa * kgs, Qc_kW: Qc, pm: fu.pm, soglie_ppm: sogl, meteo });
+      o.ipotesi.push(
+        `Incendio stazionario (${STAZ[m]}): ${(kgs).toFixed(2).replace('.', ',')} kg/s di combustibile bruciato, ${o.portata_kgs.toString().replace('.', ',')} kg/s di ${fu.specie.split(' (')[0]} emessi per tutta la durata dell'incendio`,
+        `Pennacchio caldo: calore convettivo ${(Qc / 1000).toFixed(1).replace('.', ',')} MW (${m === 'PF' ? '70% della potenza, il resto irraggiato' : 'potenza meno la quota irraggiata'}); innalzamento di Briggs (formule del modello EPA ISC3: graduale 1,6·F^(1/3)·x^(2/3)/u, finale limitato dalla stabilità con dθ/dz 0,020 K/m in E e 0,035 K/m in F)`,
+        'Dispersione gaussiana con coefficienti di Briggs (rurale), concentrazione al suolo sull\'asse del pennacchio; vento a 10 m usato anche alla quota del pennacchio',
+        'Colonna "senza innalzamento": stesso calcolo con emissione al suolo. È il limite cautelativo quando il pennacchio non sale (incendio che si spegne o cova, vento forte che abbatte i fumi, edifici vicini): va considerata soprattutto vicino all\'incendio e a fine evento'
+      );
+    } else {
+      const mb = m === 'BL' ? num('massa') : m === 'VCE' ? r.dettagli.massa_infiammabile_kg
+        : m === 'FF' ? ($('gls').value === 'tot' ? r.dettagli.massa_kg : Math.min(r.dettagli.massa_kg, r.interno.Q * (Number.isFinite(r.distanze_m.elevata_letalita) ? r.distanze_m.elevata_letalita || 0 : 0) / r.meteo.vento_ms)) : null;
+      o.esito = 'non eseguita';
+      const nomi = { BL: 'Nel BLEVE con fireball', FF: 'Nel flash fire', VCE: 'Nell\'esplosione da nube' };
+      o.testo = `${nomi[m] || 'In questo scenario'} la combustione dura pochi secondi e i prodotti salgono con la nube calda: il pennacchio non è stazionario e il modello di dispersione dell'app non si può applicare in modo attendibile. Valutazione quantitativa non eseguita.` +
+        (mb ? ` Si formano circa ${Math.round(resa * mb)} kg di ${fu.specie.split(' (')[0]} (${origine.split(':')[0]}).` : '') +
+        ' Indicazione qualitativa: mantenere le persone fuori dalla nube di fumo sottovento, che ricade al suolo man mano che si raffredda e si diluisce.';
+    }
+    r.fumi = o;
+  }
+}
+function fumiHTML(fu, esc = x => x) {
+  if (!fu) return '';
+  let h = `<p><b>${esc(fu.specie)}</b> – valutazione ${esc(fu.esito)}.</p>`;
+  if (fu.testo) h += `<p class="small">${esc(fu.testo)}</p>`;
+  if (fu.righe) {
+    const k = ['LC50', 'IDLH', 'LOC'];
+    h += `<table class="t3"><tr><th>Meteo</th><th>Pennacchio</th>${k.map(x => `<th>${x} ${fu.soglie[x]} ppm</th>`).join('')}</tr>` +
+      fu.righe.map(r => `<tr><td rowspan="2">${r.meteo}</td><td>con innalzamento (finale ${r.dh_finale_m} m)</td>${k.map(x => `<td class="n">${fmtF(r.con[x])}</td>`).join('')}</tr><tr><td>senza innalzamento</td>${k.map(x => `<td class="n">${fmtF(r.senza[x])}</td>`).join('')}</tr>`).join('') + '</table>';
+    h += `<p class="small">Distanze sottovento dal punto di incendio. "Non raggiunta": a terra la concentrazione resta sotto la soglia.</p>`;
+  }
+  if (fu.ipotesi && fu.ipotesi.length) h += `<ul class="ip">${fu.ipotesi.map(x => `<li>${esc(x)}</li>`).join('')}</ul>`;
+  return h;
+}
+const fmtF = v => v === null ? 'non raggiunta' : !Number.isFinite(v) ? '> 10 km' : v + ' m';
+function fumiTesto(fu) {
+  if (!fu) return '';
+  let t = `\nFUMI TOSSICI DI COMBUSTIONE – ${fu.specie}: valutazione ${fu.esito}\n`;
+  if (fu.testo) t += fu.testo + '\n';
+  if (fu.righe) for (const r of fu.righe) t += `- ${r.meteo} con innalzamento: LC50 ${fmtF(r.con.LC50)}, IDLH ${fmtF(r.con.IDLH)}, LOC ${fmtF(r.con.LOC)}; senza innalzamento: LC50 ${fmtF(r.senza.LC50)}, IDLH ${fmtF(r.senza.IDLH)}, LOC ${fmtF(r.senza.LOC)}\n`;
+  if (fu.ipotesi) t += fu.ipotesi.map(x => '  · ' + x).join('\n') + '\n';
+  return t;
 }
 
 // ---------- gas infiammabili (V2, gruppo 2) ----------
@@ -349,6 +423,8 @@ $('calc').onclick = () => {
       }
       risultati = [{ scenario: 'Distanze ERG 2024', sostanza: sost, soloERG: true, ergCaso: caso, ipotesi: ipo, avvisi: avvisiE }];
     }
+    if (['PF', 'JF', 'BL', 'FF', 'VCE'].includes(m) && p.fumi)
+      aggiungiFumi(m, p, risultati, meteoUser ? [{ stabilita: $('stab').value, u_ms: num('vento') || 1, T_C: num('temp') ?? 20 }] : M.METEO_PREDEFINITO);
   } catch (e) { alertBox(String(e)); return; }
   mostra();
 };
@@ -416,6 +492,8 @@ function mostra() {
   const r = risultati[tabSel];
   const g = DATA.guide[cur.guida];
   disegna(r, g);
+  $('fumicard').classList.toggle('hide', !r.fumi);
+  $('fumibox').innerHTML = r.fumi ? fumiHTML(r.fumi) : '';
   // tabella
   let t = '<table>';
   if (!r.soloERG) {

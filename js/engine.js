@@ -514,6 +514,42 @@ function vceMeteo(param, meteo = METEO_PREDEFINITO) {
   });
 }
 
+// ============ 8. FUMI TOSSICI DI COMBUSTIONE (incendi stazionari: pool fire, jet fire) ============
+// Gaussiano (Briggs rurale) con innalzamento del pennacchio caldo di Briggs (formule ISC3, EPA 1995):
+// F = g·Qc / (π·cp·ρ·Ta); neutro/instabile Δh = 1,6·F^(1/3)·x^(2/3)/u fino a x_f = 49·F^(5/8) (F < 55) o 119·F^(2/5);
+// stabile Δh = 2,6·(F/(u·s))^(1/3), s = (g/Ta)·dθ/dz con dθ/dz 0,020 K/m (E) e 0,035 K/m (F)
+const DTHETA = { E: 0.020, F: 0.035 };
+function innalzamento(F, u, stab, Ta, x) {
+  const xf = F < 55 ? 49 * Math.pow(F, 5 / 8) : 119 * Math.pow(F, 2 / 5);
+  let dh = 1.6 * Math.cbrt(F) * Math.pow(Math.min(x, xf), 2 / 3) / u;
+  if (DTHETA[stab]) { const s = G0 / Ta * DTHETA[stab]; dh = Math.min(dh, 2.6 * Math.cbrt(F / (u * s))); }
+  return dh;
+}
+// distanza massima alla quale g(x) >= s, per funzioni non monotone (picco a distanza)
+function distanzaMaxSoglia(g, s, xmin, xmax) {
+  const N = 400, lx = Math.log(xmin), dl = (Math.log(xmax) - lx) / N;
+  let ultimo = -1;
+  for (let i = 0; i <= N; i++) if (g(Math.exp(lx + i * dl)) >= s) ultimo = i;
+  if (ultimo < 0) return null;
+  if (ultimo === N) return Infinity;
+  return bisect(x => g(x) - s, Math.exp(lx + ultimo * dl), Math.exp(lx + (ultimo + 1) * dl));
+}
+function fumiIncendio({ portata_kgs, Qc_kW, pm, soglie_ppm, meteo = METEO_PREDEFINITO }) {
+  const M = pm / 1000;
+  return meteo.map(m => {
+    const Ta = (m.T_C ?? 20) + 273.15, u = m.u_ms, sig = BRIGGS_RURALE[m.stabilita];
+    const rho = P_ATM * 0.028964 / (R_GAS * Ta), F = G0 * Qc_kW * 1000 / (Math.PI * 1005 * rho * Ta);
+    const kgppm = P_ATM * M / (R_GAS * Ta) * 1e-6;
+    const C = (x, H) => { const [sy, sz] = sig(x); return portata_kgs / (Math.PI * sy * sz * u) * Math.exp(-H * H / (2 * sz * sz)) / kgppm; };
+    const con = {}, senza = {};
+    for (const [k, ppm] of Object.entries(soglie_ppm)) {
+      con[k] = r1(distanzaMaxSoglia(x => C(x, innalzamento(F, u, m.stabilita, Ta, x)), ppm, 1, 10000));
+      senza[k] = r1(distanzaSoglia(x => C(x, 0), ppm, 1, 10000));
+    }
+    return { meteo: `${m.stabilita}${u}`, con, senza, dh_finale_m: Math.round(innalzamento(F, u, m.stabilita, Ta, 1e9)), F_m4s3: +F.toFixed(1) };
+  });
+}
+
 // ============ 5. METEO ============
 // Valori predefiniti: D5 e F2; l'utente può inserire vento, temperatura e stabilità reali.
 const METEO_PREDEFINITO = [ { stabilita: 'D', u_ms: 5, T_C: 20 }, { stabilita: 'F', u_ms: 2, T_C: 20 } ];
@@ -536,6 +572,6 @@ function gaussianoMeteo(param, meteo = METEO_PREDEFINITO) {
   });
 }
 
-const api = { SOGLIE, METEO_PREDEFINITO, poolFire, bleve, gaussiano, gaussianoMeteo, controllaMeteo, tnt, kingeryBulmash_bar, kinneyGraham_bar, fattoreVistaCilindro, evaporazioneEPA, gasLiquefatto, gasLiquefattoMeteo, jetFire, flashFire, flashFireMeteo, vce, vceMeteo, bmPennacchio, bmNube, portataForo, psatBar };
+const api = { SOGLIE, METEO_PREDEFINITO, poolFire, bleve, gaussiano, gaussianoMeteo, controllaMeteo, tnt, kingeryBulmash_bar, kinneyGraham_bar, fattoreVistaCilindro, evaporazioneEPA, gasLiquefatto, gasLiquefattoMeteo, jetFire, flashFire, flashFireMeteo, vce, vceMeteo, fumiIncendio, innalzamento, bmPennacchio, bmNube, portataForo, psatBar };
 if (typeof module !== 'undefined') module.exports = api;
 if (typeof window !== 'undefined') window.MotoreAree = api;

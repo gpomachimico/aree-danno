@@ -118,6 +118,17 @@ mostra = function () {
 };
 
 // ---------- report ----------
+// Definizioni degli scenari per il report (richiesta di Luca, 19/11/2026)
+const DEF_SCENARI = [
+  [/Pool fire/, 'Pool fire (incendio di pozza)', 'Incendio di una pozza di liquido infiammabile formata da uno spandimento: brucia il vapore che si sviluppa dalla superficie del liquido. La fiamma è stabile e dura finché il liquido non si consuma; il danno è dato dall\'irraggiamento termico stazionario.'],
+  [/Jet fire/, 'Jet fire (incendio a getto)', 'Incendio di un getto di gas o di liquido infiammabile in pressione che esce da un foro, da una valvola o da una rottura e si accende subito. Forma una fiamma lunga e stabile, orientata nella direzione del getto, che dura finché il recipiente non si svuota o la perdita non viene intercettata. Il danno è dato dall\'irraggiamento termico stazionario e dal contatto diretto con la fiamma, che può investire altri recipienti (effetto domino).'],
+  [/Flash fire/, 'Flash fire (incendio di nube)', 'Combustione rapida, senza onda d\'urto significativa, di una nube di gas o vapori infiammabili che si è dispersa in aria e si accende in ritardo. La fiamma percorre in pochi secondi la parte della nube con concentrazione entro i limiti di infiammabilità: il danno riguarda soprattutto chi si trova dentro la nube, per questo le soglie sono il limite inferiore di infiammabilità (LFL) e la sua metà.'],
+  [/VCE/, 'VCE (Vapour Cloud Explosion, esplosione di nube di vapore)', 'Combustione di una nube infiammabile in cui il fronte di fiamma accelera, soprattutto per la presenza di ostacoli, tubazioni e zone congestionate, fino a generare un\'onda di sovrappressione. Il danno è dato dalla sovrappressione: effetti diretti sulle persone e, soprattutto, effetti indiretti per crolli e proiezione di vetri e frammenti.'],
+  [/BLEVE/, 'BLEVE (Boiling Liquid Expanding Vapour Explosion)', 'Cedimento improvviso di un recipiente che contiene un liquido in pressione a temperatura superiore a quella di ebollizione a pressione atmosferica, di solito perché un incendio lo investe e ne indebolisce le pareti. Il liquido vaporizza istantaneamente: se è infiammabile si forma una sfera di fuoco (fireball) che dura pochi secondi; si producono anche un\'onda di pressione e la proiezione di frammenti del recipiente. L\'app calcola l\'irraggiamento della fireball.'],
+  [/Gas tossico liquefatto|gaussiana/, 'Dispersione tossica', 'Rilascio di una sostanza tossica che forma in aria una nube o un pennacchio trasportato dal vento. Il danno è dato dall\'inalazione: dipende dalla concentrazione e dalla durata dell\'esposizione, per questo le soglie sono LC50, IDLH e LOC e le distanze dipendono dal meteo.']
+];
+const defScenario = r => DEF_SCENARI.find(([re]) => re.test(r.scenario || ''));
+
 // Legenda delle zone (Linee guida PEE, Direttiva 7/12/2022)
 const LEGENDA_ZONE = [
   ['Zona I – di sicuro impatto', 'Area in cui sono attesi effetti con elevata probabilità di letalità anche per persone mediamente sane. Corrisponde alla soglia di "elevata letalità".'],
@@ -164,6 +175,8 @@ function testoReport() {
     for (const x of L.righe) t += `- ${x.nome} (${x.valore}): ${fmt(x.distanza)}\n`;
   }
   if (r.ergCaso) t += `\nDistanza ERG da applicare: ${r.ergCaso.dist} m${r.ergCaso.dir ? ' ' + r.ergCaso.dir : ''} – ${r.ergCaso.etichetta} (${r.ergCaso.motivo})\n`;
+  { const d = defScenario(r); if (d) t += `\nDEFINIZIONE DELLO SCENARIO – ${d[1]}\n${d[2]}\n`; }
+  t += fumiTesto(r.fumi);
   t += `\nIPOTESI\n${r.ipotesi.map(x => '- ' + x).join('\n')}\n`;
   if (r.meteo) t += `- Meteo ${r.meteo.origine}: ${r.meteo.stabilita}, ${r.meteo.vento_ms} m/s, ${r.meteo.temperatura_C} °C\n`;
   if (r.avvisi && r.avvisi.length) t += `\nAVVISI\n${r.avvisi.map(x => '- ' + x).join('\n')}\n`;
@@ -189,6 +202,7 @@ $('print').onclick = () => {
   h += `<div class="intest"><h1>Parere tecnico – Stima delle aree di danno e di sicurezza</h1>
     <table class="dati"><tr><td>Data</td><td>${esc(quando)}</td></tr><tr><td>Luogo</td><td>${esc(luogo)}</td></tr><tr><td>Coordinate</td><td>${esc(coord)}</td></tr></table></div>`;
   h += `<h2>Merce e scenario</h2><table><tr><td>Merce</td><td>${esc(r.sostanza)}</td></tr><tr><td>Classificazione</td><td>${esc(classif())} · ERG Guida ${esc(cur.guida)}</td></tr><tr><td>Scenario</td><td>${esc(r.scenario)}</td></tr>${r.meteo ? `<tr><td>Meteo</td><td>${r.meteo.stabilita}, ${r.meteo.vento_ms} m/s, ${r.meteo.temperatura_C} °C (${r.meteo.origine})</td></tr>` : ''}</table>`;
+  { const d = defScenario(r); if (d) h += `<p class="nota"><b>${esc(d[1])}</b>: ${esc(d[2])}</p>`; }
   if (!r.soloERG) {
     const L = legendaSoglie(r);
     h += `<h2>Zone di pianificazione</h2><table><tr><th>Zona</th><th class="n">Distanza</th></tr>
@@ -202,6 +216,7 @@ $('print').onclick = () => {
   }
   if (r.ergCaso) h += `<h2>Distanza ERG da applicare</h2><p>${r.ergCaso.dist} m${r.ergCaso.dir ? ' ' + esc(r.ergCaso.dir) : ''} – ${esc(r.ergCaso.etichetta)}. ${esc(r.ergCaso.motivo)}</p>`;
   h += `<div class="schema"><h2>Schema delle zone</h2>${$('graf').innerHTML}<div class="nota"> Cerchi colorati: ${r.soloERG ? (r.ergCaso && r.ergCaso.prot_km ? `isolamento ${r.ergCaso.dist} m (arancio) e protezione sottovento ${String(r.ergCaso.prot_km).replace('.', ',')} km (giallo, rappresentata come cerchio: inviluppo cautelativo per direzione del vento incerta)` : 'distanza ERG da applicare') : 'Zona I (rosso), Zona II (arancio), Zona III (giallo)'}. Tratteggio: isolamento iniziale ERG. Barra: scala grafica.${r.meteo ? ' Per la dispersione tossica le distanze sono sottovento e sono rappresentate come cerchi (inviluppo cautelativo per direzione del vento incerta).' : ''}</div></div>`;
+  if (r.fumi) h += `<h2>Fumi tossici di combustione</h2>${fumiHTML(r.fumi, esc).replace(/class="small"/g, 'class="nota"').replace(/class="ip"/g, '')}`;
   h += `<h2>Ipotesi di calcolo</h2><ul>${r.ipotesi.map(x => `<li>${esc(x)}</li>`).join('')}${r.meteo ? `<li>Meteo ${r.meteo.origine}: ${r.meteo.stabilita}, ${r.meteo.vento_ms} m/s, ${r.meteo.temperatura_C} °C</li>` : ''}</ul>`;
   if (r.avvisi && r.avvisi.length) h += `<h2>Avvisi</h2><ul>${r.avvisi.map(x => `<li>${esc(x)}</li>`).join('')}</ul>`;
   h += `<h2>ERG 2024 – Guida ${esc(cur.guida)}</h2><p class="nota">${esc(g.titolo_it || g.titolo)}</p><table>${ergRighe(g, cur.guida).map(([a, b]) => `<tr><td>${esc(a)}</td><td>${esc(b)}</td></tr>`).join('')}</table>`;
