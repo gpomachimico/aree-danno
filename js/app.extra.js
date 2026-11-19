@@ -1,6 +1,6 @@
 /* Estensioni dell'app installabile: mappa, GPS, impostazioni, report stampabile, offline */
 'use strict';
-const VERSIONE = '1.4-beta';
+const VERSIONE = '1.5-beta';
 
 // ---------- impostazioni (solo su questo dispositivo) ----------
 const FIRMATARIO_DEFAULT = { nome: 'Dott. Gianluca POMA', qualifica: 'Consulente Chimico di Porto' };
@@ -83,6 +83,7 @@ function cerchiDaRisultato(r, g) {
     if (r.ergCaso.prot_km) c.push({ r: r.ergCaso.prot_km * 1000, col: '#f1c40f', nome: `Protezione sottovento (${r.ergCaso.per}, disegnata come cerchio)` });
     c.push({ r: r.ergCaso.dist, col: '#e67e22', nome: 'ERG: ' + r.ergCaso.etichetta });
   }
+  if (r.qd) for (const x of r.qd.righe) if (x.k === 'IBD' || x.k === 'EWD') c.push({ r: x.m, col: '#7d3c98', nome: 'DoD: ' + x.nome, linea: true });
   const iso = isoNumero(g);
   return { zone: c, iso };
 }
@@ -92,7 +93,7 @@ function disegnaMappa() {
   const r = risultati[tabSel], g = DATA.guide[cur.guida];
   if (!posizione) impostaPosizione(mappa.getCenter().lat, mappa.getCenter().lng, 'centro della mappa (posizione non indicata)');
   const { zone, iso } = cerchiDaRisultato(r, g);
-  for (const z of zone) L.circle(posizione, { radius: z.r, color: z.col, weight: 2, fillColor: z.col, fillOpacity: 0.28 }).bindTooltip(`${z.nome}: ${z.r} m`).addTo(livelloZone);
+  for (const z of zone) L.circle(posizione, z.linea ? { radius: z.r, color: z.col, weight: 2, dashArray: '8 4', fill: false } : { radius: z.r, color: z.col, weight: 2, fillColor: z.col, fillOpacity: 0.28 }).bindTooltip(`${z.nome}: ${z.r} m`).addTo(livelloZone);
   L.circle(posizione, { radius: iso, color: '#2c3e50', weight: 2, dashArray: '6 5', fill: false }).bindTooltip(`Isolamento iniziale ERG: ${iso} m`).addTo(livelloZone);
   if (r.ergCaso && !r.soloERG) L.circle(posizione, { radius: r.ergCaso.dist, color: '#2c3e50', weight: 1.5, dashArray: '2 6', fill: false }).bindTooltip(`ERG: ${r.ergCaso.etichetta} ${r.ergCaso.dist} m`).addTo(livelloZone);
   const rmax = Math.max(iso, ...zone.map(z => z.r), r.ergCaso ? r.ergCaso.dist : 0);
@@ -177,6 +178,7 @@ function testoReport() {
   if (r.ergCaso) t += `\nDistanza ERG da applicare: ${r.ergCaso.dist} m${r.ergCaso.dir ? ' ' + r.ergCaso.dir : ''} – ${r.ergCaso.etichetta} (${r.ergCaso.motivo})\n`;
   { const d = defScenario(r); if (d) t += `\nDEFINIZIONE DELLO SCENARIO – ${d[1]}\n${d[2]}\n`; }
   t += fumiTesto(r.fumi);
+  t += qdTesto(r.qd);
   t += `\nIPOTESI\n${r.ipotesi.map(x => '- ' + x).join('\n')}\n`;
   if (r.meteo) t += `- Meteo ${r.meteo.origine}: ${r.meteo.stabilita}, ${r.meteo.vento_ms} m/s, ${r.meteo.temperatura_C} °C\n`;
   if (r.avvisi && r.avvisi.length) t += `\nAVVISI\n${r.avvisi.map(x => '- ' + x).join('\n')}\n`;
@@ -216,6 +218,7 @@ $('print').onclick = () => {
   }
   if (r.ergCaso) h += `<h2>Distanza ERG da applicare</h2><p>${r.ergCaso.dist} m${r.ergCaso.dir ? ' ' + esc(r.ergCaso.dir) : ''} – ${esc(r.ergCaso.etichetta)}. ${esc(r.ergCaso.motivo)}</p>`;
   h += `<div class="schema"><h2>Schema delle zone</h2>${$('graf').innerHTML}<div class="nota"> Cerchi colorati: ${r.soloERG ? (r.ergCaso && r.ergCaso.prot_km ? `isolamento ${r.ergCaso.dist} m (arancio) e protezione sottovento ${String(r.ergCaso.prot_km).replace('.', ',')} km (giallo, rappresentata come cerchio: inviluppo cautelativo per direzione del vento incerta)` : 'distanza ERG da applicare') : 'Zona I (rosso), Zona II (arancio), Zona III (giallo)'}. Tratteggio: isolamento iniziale ERG. Barra: scala grafica.${r.meteo ? ' Per la dispersione tossica le distanze sono sottovento e sono rappresentate come cerchi (inviluppo cautelativo per direzione del vento incerta).' : ''}</div></div>`;
+  if (r.qd) h += `<h2>Distanze in funzione della NEM (DoD)</h2>${qdHTML(r.qd, esc).replace(/class="small"/g, 'class="nota"').replace(/class="ip"/g, '').replace(/class="warn"/g, 'class="nota"')}`;
   if (r.fumi) h += `<h2>Fumi tossici di combustione</h2>${fumiHTML(r.fumi, esc).replace(/class="small"/g, 'class="nota"').replace(/class="ip"/g, '')}`;
   h += `<h2>Ipotesi di calcolo</h2><ul>${r.ipotesi.map(x => `<li>${esc(x)}</li>`).join('')}${r.meteo ? `<li>Meteo ${r.meteo.origine}: ${r.meteo.stabilita}, ${r.meteo.vento_ms} m/s, ${r.meteo.temperatura_C} °C</li>` : ''}</ul>`;
   if (r.avvisi && r.avvisi.length) h += `<h2>Avvisi</h2><ul>${r.avvisi.map(x => `<li>${esc(x)}</li>`).join('')}</ul>`;

@@ -60,6 +60,8 @@ function explFields(conCalcolo, p) {
       <p class="small">NEM per collo: dal documento di classificazione o dalla marcatura del collo.</p></div>
     ${conCalcolo ? `<div class="row">${f('fatt', 'Fattore TNT', p.fattore)}<div></div></div><p class="small">Fattore: ${p.fonte}.</p>` :
       (/^1\.[15]/.test(cur.classe) ? `<p class="small">Divisione ${cur.classe} (esplosione di massa): fattore TNT non ancora verificato per questa voce, quindi l'app applica solo le distanze ERG. Il calcolo della sovrappressione è disponibile per le voci con fattore verificato (es. UN 0209, 0483, 0484, 0221, 0286).</p>` : `<p class="small">Divisione ${cur.classe}: nessuna esplosione di massa; nella prima versione si applicano le distanze ERG.</p>`)}
+    ${/^1\.2/.test(cur.classe) ? `<div class="row">${f('nemart', 'NEM del singolo articolo (kg) – facoltativa', '', 'placeholder="non nota"')}<div></div></div><p class="small">Serve a distinguere HD 1.2.1 (oltre 0,73 kg per articolo) da HD 1.2.2 per le distanze DoD; se non è nota si usa HD 1.2.1 (cautelativo).</p>` : ''}
+    ${/^1\.[15]/.test(cur.classe) ? chk('calibro', 'Bombe o proiettili di calibro ≥ 127 mm') + chk('ferro', 'Carico su carro ferroviario') : ''}
     ${chk('parte', 'Coinvolta una parte consistente del carico, senza incendio (ERG "Large Spill")')}
     ${chk('fuoco', 'Incendio in atto o che può raggiungere il carico')}
     <p class="small">L'ERG non lega le distanze per gli esplosivi alla massa netta: la scelta tra misura immediata, "Large Spill" e incendio dipende dalla situazione valutata sul posto.</p>`;
@@ -212,6 +214,16 @@ function bindGL() {
   const agg = () => { w.style.visibility = s.value === 'tot' ? 'hidden' : 'visible'; };
   c.addEventListener('change', () => { const o = contenitoriGL().find(x => x[0] === c.value); if (o) { $('massa').value = o[2]; $('dforo').value = o[3]; } });
   s.addEventListener('change', agg); agg();
+}
+
+// ---------- esplosivi: distanze DoD in funzione della NEM ----------
+function qdHTML(q, esc = x => x) {
+  return `<p class="small">NEM considerata: ${String(q.nem_kg).replace('.', ',')} kg.</p><table>${q.righe.map(r => `<tr><td>${esc(r.nome)}<br><span class="small">${esc(r.descr)}</span></td><td class="n">${r.m} m</td></tr>`).join('')}</table>` +
+    `<ul class="ip">${q.ipotesi.map(x => `<li>${esc(x)}</li>`).join('')}</ul>${q.avvisi.map(x => `<div class="warn">${esc(x)}</div>`).join('')}`;
+}
+function qdTesto(q) {
+  if (!q) return '';
+  return `\nDISTANZE IN FUNZIONE DELLA NEM (DoD) – NEM ${q.nem_kg} kg\n${q.righe.map(r => `- ${r.nome}: ${r.m} m (${r.descr})`).join('\n')}\n${q.ipotesi.map(x => '  · ' + x).join('\n')}\n${q.avvisi.map(x => '  ! ' + x).join('\n')}\n`;
 }
 
 // ---------- fumi tossici di combustione ----------
@@ -418,10 +430,15 @@ $('calc').onclick = () => {
       const avvisiE = [];
       if (cur.classe.startsWith('1.')) {
         const { nem } = leggiNEM();
-        avvisiE.push(`Divisione ${cur.classe}: le distanze ERG sono fisse e NON variano con la massa netta esplosiva (qui ${nem} kg) né con l'imballaggio. Dipendono solo dalla situazione indicata (misura immediata, parte consistente del carico, incendio). Il calcolo in funzione della NEM per le divisioni 1.2 e 1.3 è previsto nella versione successiva.`);
+        avvisiE.push(`Divisione ${cur.classe}: le distanze ERG sono fisse e NON variano con la massa netta esplosiva (qui ${nem} kg) né con l'imballaggio. Dipendono solo dalla situazione indicata (misura immediata, parte consistente del carico, incendio). Le distanze in funzione della NEM (DoD) sono nel riquadro dedicato.`);
         avvisiE.push(avvisoEsplosivi());
       }
       risultati = [{ scenario: 'Distanze ERG 2024', sostanza: sost, soloERG: true, ergCaso: caso, ipotesi: ipo, avvisi: avvisiE }];
+    }
+    if (cur.classe.startsWith('1.')) {
+      const { nem } = leggiNEM(), na = num('nemart');
+      const qd = M.qdDoD({ div: cur.classe, nem_kg: nem, nemArticolo_kg: na && na > 0 ? na : null, ferrovia: !!($('ferro') && $('ferro').checked), grossoCalibro: !!($('calibro') && $('calibro').checked) });
+      if (qd.righe.length) risultati.forEach(r => r.qd = qd);
     }
     if (['PF', 'JF', 'BL', 'FF', 'VCE'].includes(m) && p.fumi)
       aggiungiFumi(m, p, risultati, meteoUser ? [{ stabilita: $('stab').value, u_ms: num('vento') || 1, T_C: num('temp') ?? 20 }] : M.METEO_PREDEFINITO);
@@ -493,6 +510,8 @@ function mostra() {
   const g = DATA.guide[cur.guida];
   disegna(r, g);
   $('fumicard').classList.toggle('hide', !r.fumi);
+  $('qdcard').classList.toggle('hide', !r.qd);
+  $('qdbox').innerHTML = r.qd ? qdHTML(r.qd) : '';
   $('fumibox').innerHTML = r.fumi ? fumiHTML(r.fumi) : '';
   // tabella
   let t = '<table>';
@@ -570,19 +589,21 @@ function disegna(r, g) {
   if (r.soloERG && r.ergCaso && r.ergCaso.prot_km) cer.push([r.ergCaso.prot_km * 1000, 'var(--z3)', 'PROT']);
   if (r.soloERG && r.ergCaso && r.ergCaso.dist !== iso) cer.push([r.ergCaso.dist, 'var(--z2)', 'ERG']);
   const ergApp = !r.soloERG && r.ergCaso ? r.ergCaso.dist : 0;
-  const rmax = Math.max(iso, ergApp, ...cer.map(c => c[0]));
+  const qdC = r.qd ? r.qd.righe.filter(x => x.k === 'IBD' || x.k === 'EWD') : [];
+  const rmax = Math.max(iso, ergApp, ...cer.map(c => c[0]), ...qdC.map(x => x.m));
   const sc = (C - 14) / rmax;
   let s = `<svg viewBox="0 0 ${W} ${W}" role="img" aria-label="Zone di danno in scala">`;
   for (const [rr, col] of cer) s += `<circle cx="${C}" cy="${C}" r="${rr * sc}" fill="${col}" fill-opacity=".55" stroke="${col}"/>`;
   s += `<circle cx="${C}" cy="${C}" r="${iso * sc}" fill="none" stroke="var(--erg)" stroke-width="1.6" stroke-dasharray="5 4"/>`;
   if (ergApp) s += `<circle cx="${C}" cy="${C}" r="${ergApp * sc}" fill="none" stroke="var(--erg)" stroke-width="1.2" stroke-dasharray="2 4"/>`;
+  for (const x of qdC) s += `<circle cx="${C}" cy="${C}" r="${x.m * sc}" fill="none" stroke="#7d3c98" stroke-width="${x.k === 'IBD' ? 1.8 : 1.2}" stroke-dasharray="${x.k === 'IBD' ? '8 3' : '1 3'}"/>`;
   s += `<circle cx="${C}" cy="${C}" r="3" fill="var(--ink)"/>`;
   // scala
   const nice = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000].find(v => v * sc > 50) || 5000;
   s += `<line x1="12" y1="${W - 14}" x2="${12 + nice * sc}" y2="${W - 14}" stroke="var(--ink)" stroke-width="2"/><text x="12" y="${W - 20}" font-size="11" fill="var(--ink)">${nice} m</text>`;
   if (r.meteo) s += `<text x="${W - 12}" y="18" font-size="11" text-anchor="end" fill="var(--ink)">vento → sottovento</text>`;
   $('graf').innerHTML = s + '</svg>';
-  $('grafnote').textContent = (r.meteo ? 'Distanze sottovento rappresentate come cerchi (inviluppo cautelativo per direzione del vento incerta). ' : '') + 'Tratteggio: isolamento iniziale ERG ' + iso + ' m. ' + (ergApp ? 'Puntinato: distanza ERG applicabile (' + r.ergCaso.etichetta + ') ' + ergApp + ' m. ' : '') + (r.soloERG ? 'Area colorata: distanza ERG da applicare' + (r.ergCaso && r.ergCaso.prot_km ? ` (arancio: isolamento ${r.ergCaso.dist} m; giallo: protezione sottovento ${String(r.ergCaso.prot_km).replace('.', ',')} km, disegnata come cerchio). ` : '. ') : '') + (cer.length < 3 && !r.soloERG ? 'Le zone non raggiunte non sono disegnate.' : '');
+  $('grafnote').textContent = (r.meteo ? 'Distanze sottovento rappresentate come cerchi (inviluppo cautelativo per direzione del vento incerta). ' : '') + 'Tratteggio: isolamento iniziale ERG ' + iso + ' m. ' + (ergApp ? 'Puntinato: distanza ERG applicabile (' + r.ergCaso.etichetta + ') ' + ergApp + ' m. ' : '') + (r.soloERG ? 'Area colorata: distanza ERG da applicare' + (r.ergCaso && r.ergCaso.prot_km ? ` (arancio: isolamento ${r.ergCaso.dist} m; giallo: protezione sottovento ${String(r.ergCaso.prot_km).replace('.', ',')} km, disegnata come cerchio). ` : '. ') : '') + (cer.length < 3 && !r.soloERG ? 'Le zone non raggiunte non sono disegnate.' : '') + (qdC.length ? ' Viola: distanze DoD (' + qdC.map(x => (x.k === 'IBD' ? 'IBD tratteggio lungo ' : 'allontanamento in emergenza puntinato ') + x.m + ' m').join('; ') + ').' : '');
 }
 
 $('copy').onclick = async () => {

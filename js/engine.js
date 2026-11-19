@@ -550,6 +550,59 @@ function fumiIncendio({ portata_kgs, Qc_kW, pm, soglie_ppm, meteo = METEO_PREDEF
   });
 }
 
+// ============ 9. ESPLOSIVI – distanze DoD in funzione della NEM ============
+// DoD 6055.09-M Vol. 3 (2012, ripreso dal DESR 6055.09): Tabelle V3.E3.T10 (HD 1.2.1), T12 (HD 1.2.2), T14 (HD 1.3);
+// Vol. 1 Tabella V1.E10.T4: distanze di allontanamento in emergenza del personale non indispensabile
+const LB = 2.204623, FT = 0.3048;
+function qdDoD({ div, nem_kg, nemArticolo_kg = null, ferrovia = false, grossoCalibro = false }) {
+  const W = nem_kg * LB, lnW = Math.log(Math.max(W, 1e-9)), righe = [], ipotesi = [], avvisi = [];
+  const m = ft => Math.round(ft * FT);
+  const dv = div.slice(0, 3);
+  const DEF = { '1.2': 'Divisione 1.2 (IMDG 2.1.1.4): materie e oggetti che presentano un pericolo di proiezione ma non di esplosione in massa', '1.3': 'Divisione 1.3 (IMDG 2.1.1.4): materie e oggetti che presentano un pericolo di incendio con un leggero pericolo di spostamento d\'aria o di proiezione, o di entrambi, ma senza pericolo di esplosione in massa' };
+  if (DEF[dv]) ipotesi.push(DEF[dv]);
+  if (dv === '1.2') {
+    const sub = nemArticolo_kg === null ? '1.2.1' : nemArticolo_kg > 0.73 ? '1.2.1' : '1.2.2';
+    const Wc = Math.min(W, 500000);
+    const l = Math.log(Wc);
+    let ibd = sub === '1.2.1' ? -735.186 + 237.559 * l - 4.274 * l * l : 101.649 - 15.934 * l + 5.173 * l * l;
+    const min = sub === '1.2.1' ? 200 : 100;
+    ibd = Math.max(ibd, min);
+    const ptrd = Math.max(0.6 * ibd, min);
+    righe.push({ k: 'IBD', nome: 'Distanza dagli edifici abitati (IBD)', m: m(ibd), descr: `HD ${sub}: protezione dai frammenti pericolosi per le persone negli edifici e all'aperto` });
+    righe.push({ k: 'PTRD', nome: 'Distanza dalle vie di traffico pubblico (PTRD)', m: m(ptrd), descr: '60% della IBD' });
+    righe.push({ k: 'EWD', nome: 'Allontanamento in emergenza del personale non indispensabile', m: 762, descr: 'HD 1.2: 2500 ft' });
+    ipotesi.push(`Sottodivisione DoD HD ${sub}: ${nemArticolo_kg === null ? 'NEM del singolo articolo non indicata, si assume HD 1.2.1 (distanze maggiori, cautelativo)' : `NEM del singolo articolo ${String(nemArticolo_kg).replace('.', ',')} kg ${sub === '1.2.1' ? '> 0,73 kg' : '≤ 0,73 kg'} (criterio DoD sulla NEM; la classificazione DoD considera anche la frammentazione)`}`);
+    ipotesi.push(sub === '1.2.1' ? 'IBD = −735,186 + 237,559·ln W − 4,274·(ln W)² ft, minimo 200 ft (EQN V3.E3.T10-1), W = NEM totale in libbre' : 'IBD = 101,649 − 15,934·ln W + 5,173·(ln W)² ft, minimo 100 ft (EQN V3.E3.T12-1), W = NEM totale in libbre');
+    if (W > 500000) avvisi.push('NEM oltre 500 000 lb (227 t): le tabelle DoD per HD 1.2 rimandano a criteri specifici; il valore è calcolato a 500 000 lb e va considerato un minimo');
+    avvisi.push('L\'IMDG non distingue HD 1.2.1, 1.2.2 e 1.2.3 (sottodivisioni DoD). Per gli articoli HD 1.2.3 il DoD applica le distanze HD 1.3 con un minimo legato ai frammenti dell\'articolo, non calcolato qui.');
+  } else if (dv === '1.3') {
+    let d;
+    if (W < 1000) d = 75;
+    else if (W < 96000) d = Math.exp(2.47 + 0.2368 * lnW + 0.00384 * lnW * lnW);
+    else if (W < 1000000) d = Math.exp(7.2297 - 0.5984 * lnW + 0.04046 * lnW * lnW);
+    else d = 8 * Math.cbrt(W);
+    d = Math.max(d, 75);
+    const Dfb = 3.97 * Math.cbrt(1.2 * nem_kg);
+    righe.push({ k: 'IBD', nome: 'Distanza dagli edifici abitati e dalle vie di traffico pubblico (IBD = PTRD)', m: m(d), descr: 'HD 1.3: protezione dall\'irraggiamento e dai frammenti dell\'incendio di massa' });
+    righe.push({ k: 'FB', nome: 'Raggio della palla di fuoco (fireball)', m: Math.round(Dfb / 2), descr: `diametro ${Math.round(Dfb)} m = 3,97·(1,2·NEM)^(1/3)` });
+    righe.push({ k: 'EWD', nome: 'Allontanamento in emergenza del personale non indispensabile', m: Math.max(2 * m(d), 183), descr: 'HD 1.3: doppio della IBD, minimo 600 ft (183 m)' });
+    ipotesi.push('IBD = PTRD (Tabella V3.E3.T14): 75 ft sotto 1000 lb; exp[2,47 + 0,2368·ln W + 0,00384·(ln W)²] ft fino a 96 000 lb; exp[7,2297 − 0,5984·ln W + 0,04046·(ln W)²] ft fino a 1 000 000 lb; 8·W^(1/3) ft oltre; minimo 75 ft');
+    ipotesi.push('Diametro della fireball D = 3,97·(1,2·Q)^(1/3) m, con Q = NEM in kg e il 20% di margine di sicurezza previsto dal DoD');
+  } else if (dv === '1.1' || dv === '1.5') {
+    const v = grossoCalibro ? 1219 : nem_kg <= 226.8 ? 762 : ferrovia ? 1524 : 1219;
+    righe.push({ k: 'EWD', nome: 'Allontanamento in emergenza del personale non indispensabile (trasporto)', m: v, descr: grossoCalibro ? 'bombe e proiettili di calibro ≥ 127 mm: 4000 ft' : nem_kg <= 226.8 ? 'NEM ≤ 226,8 kg (500 lb): 2500 ft' : ferrovia ? 'NEM > 226,8 kg su carro ferroviario: 5000 ft' : 'NEM > 226,8 kg, trasporto non ferroviario: 4000 ft' });
+  } else if (dv === '1.4') {
+    righe.push({ k: 'EWD', nome: 'Allontanamento in emergenza del personale non indispensabile', m: 92, descr: 'HD 1.4: 300 ft (91,5 m)' });
+  } else if (dv === '1.6') {
+    righe.push({ k: 'EWD', nome: 'Allontanamento in emergenza del personale non indispensabile', m: 762, descr: 'HD 1.6: 2500 ft' });
+  }
+  if (righe.length) {
+    ipotesi.push('Distanze di allontanamento in emergenza: DoD 6055.09-M Vol. 1, Tabella V1.E10.T4 ("Emergency Withdrawal Distances for Nonessential Personnel"); non considerano la gittata dei propulsori');
+    if (dv === '1.2' || dv === '1.3') ipotesi.push('IBD e PTRD: DoD 6055.09-M Vol. 3 (2012), ripreso dal DESR 6055.09 (2019–2024). Sono distanze di sicurezza per la pianificazione dei depositi, usate qui come riferimento per l\'evento in transito');
+  }
+  return { righe, ipotesi, avvisi, nem_kg };
+}
+
 // ============ 5. METEO ============
 // Valori predefiniti: D5 e F2; l'utente può inserire vento, temperatura e stabilità reali.
 const METEO_PREDEFINITO = [ { stabilita: 'D', u_ms: 5, T_C: 20 }, { stabilita: 'F', u_ms: 2, T_C: 20 } ];
@@ -572,6 +625,6 @@ function gaussianoMeteo(param, meteo = METEO_PREDEFINITO) {
   });
 }
 
-const api = { SOGLIE, METEO_PREDEFINITO, poolFire, bleve, gaussiano, gaussianoMeteo, controllaMeteo, tnt, kingeryBulmash_bar, kinneyGraham_bar, fattoreVistaCilindro, evaporazioneEPA, gasLiquefatto, gasLiquefattoMeteo, jetFire, flashFire, flashFireMeteo, vce, vceMeteo, fumiIncendio, innalzamento, bmPennacchio, bmNube, portataForo, psatBar };
+const api = { SOGLIE, METEO_PREDEFINITO, poolFire, bleve, gaussiano, gaussianoMeteo, controllaMeteo, tnt, kingeryBulmash_bar, kinneyGraham_bar, fattoreVistaCilindro, evaporazioneEPA, gasLiquefatto, gasLiquefattoMeteo, jetFire, flashFire, flashFireMeteo, vce, vceMeteo, fumiIncendio, innalzamento, qdDoD, bmPennacchio, bmNube, portataForo, psatBar };
 if (typeof module !== 'undefined') module.exports = api;
 if (typeof window !== 'undefined') window.MotoreAree = api;
