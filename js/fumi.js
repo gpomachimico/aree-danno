@@ -9,6 +9,10 @@
   const F = {
     '1086': { tipo: 'calc', specie: 'acido cloridrico (HCl)', rif: '1050', pm: 36.461, resa: 36.461 / 62.498,
       reazione: 'C2H3Cl + 2,5 O2 → 2 CO2 + H2O + HCl: tutto il cloro del cloruro di vinile diventa HCl, 0,583 kg di HCl per kg bruciato (resa stechiometrica, cautelativa)' },
+    '1063': { tipo: 'calc', specie: 'acido cloridrico (HCl)', rif: '1050', pm: 36.461, resa: 36.461 / 50.488,
+      reazione: 'CH3Cl + 1,5 O2 → CO2 + H2O + HCl: tutto il cloro del cloruro di metile diventa HCl, 0,722 kg di HCl per kg bruciato (resa stechiometrica, cautelativa)' },
+    '1030': { tipo: 'calc', specie: 'acido fluoridrico (HF)', rif: '1052', pm: 20.006, resa: 2 * 20.006 / 66.05,
+      reazione: 'C2H4F2 + 2,5 O2 → 2 CO2 + H2O + 2 HF: tutto il fluoro dell\'R152a diventa HF, 0,606 kg di HF per kg bruciato (resa stechiometrica, cautelativa)' },
     '1093': { tipo: 'qual', specie: 'acido cianidrico (HCN) e ossidi di azoto',
       motivo: 'L\'azoto dell\'acrilonitrile forma HCN e ossidi di azoto, ma la quantità dipende dall\'apporto d\'aria, dalla temperatura e dalla dimensione dell\'incendio e non si può stimare in modo affidabile con una resa fissa. Valutazione solo qualitativa: considerare i fumi come tossici e mantenere le persone fuori dal pennacchio.' },
     '1267': { tipo: 'zolfo', specie: 'anidride solforosa (SO2)', rif: '1079', pm: 64.064, nomeProd: 'petrolio greggio', tipico: 'da circa 0,1% a oltre 3% secondo l\'origine' },

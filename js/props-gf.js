@@ -8,6 +8,7 @@
 //  - LFL: banca dati GESTIS (IFA), limiti di esplosione in aria a 20 °C e 1013 mbar (metodo EN 1839).
 (function () {
   const HEOS = 'CoolProp (equazioni di stato di riferimento) tramite la libreria thermo';
+  const LHV = 'potere calorifico inferiore dalla libreria chemicals di C. Bell (entalpie di formazione standard; controllo: propano 46,3 MJ/kg come dal NIST)';
   const GESTIS = 'banca dati GESTIS (IFA), limiti di esplosione in aria a 20 °C (EN 1839)';
   const PROPANO = { pm: 44.096, Tb: 231.04, hv: 425.6, cpl: 2456, rhol: 500, gam: 1.13,
     ps: { '-20': 2.445, '-10': 3.453, 0: 4.745, 10: 6.366, 20: 8.365, 30: 10.79, 40: 13.694, 50: 17.133 } };
@@ -40,7 +41,35 @@
 ,
     '1001': { nome: 'acetilene disciolto (in acetone, bombola con massa porosa)', compresso: true, disciolto: true, pm: 26.037, gam: 1.226, dHc: 48210, LFL: 2.3, Pdef: 15, massaDef: 7,
       fonte: `potere calorifico inferiore 48,2 MJ/kg da entalpie di formazione NIST WebBook (acetilene +226,7 kJ/mol); LFL 2,3% (IEC 80079-20-1, metodo EN 1839, scheda Air Liquide); gamma 1,23 dalla libreria thermo`,
-      avviso: 'Acetilene: una bombola esposta al fuoco o a un urto può innescare la decomposizione esplosiva dell\'acetilene all\'interno, anche senza aria; la bombola può scoppiare ore dopo l\'incendio. Questo effetto non è calcolato: seguire la Guida ERG 116 e le procedure del fornitore (raffreddamento prolungato, distanza di sicurezza).' }
+      avviso: 'Acetilene: una bombola esposta al fuoco o a un urto può innescare la decomposizione esplosiva dell\'acetilene all\'interno, anche senza aria; la bombola può scoppiare ore dopo l\'incendio. Questo effetto non è calcolato: seguire la Guida ERG 116 e le procedure del fornitore (raffreddamento prolungato, distanza di sicurezza).' },
+    // ---- aggiunte del 19/11/2026 (richiesta di Luca): altri gas infiammabili di classe 2.1 ----
+    '1010': { nome: '1,3-butadiene (butadieni stabilizzati, calcolo come 1,3-butadiene)', pm: 54.09, Tb: 268.66, hv: 415.6, cpl: 2205, rhol: 621, rho_liq: 0.621, gam: 1.119, dHc: 44543, LFL: 1.4,
+      ps: { '-20': 0.531, '-10': 0.813, 0: 1.203, 10: 1.724, 20: 2.404, 30: 3.272, 40: 4.358, 50: 5.694 },
+      fonte: `proprietà fisiche ${HEOS}; ${LHV}; LFL 1,4% (${GESTIS})` },
+    '1012': { nome: 'butilene (calcolo come 1-butene)', pm: 56.106, Tb: 266.84, hv: 392.2, cpl: 2225, rhol: 594, rho_liq: 0.594, gam: 1.11, dHc: 45291, LFL: 1.2,
+      ps: { '-20': 0.575, '-10': 0.875, 0: 1.287, 10: 1.835, 20: 2.546, 30: 3.449, 40: 4.574, 50: 5.953 },
+      fonte: `proprietà fisiche ${HEOS} (1-butene, LFL più basso fra gli isomeri riportati); ${LHV}; LFL 1,2% (${GESTIS})` },
+    '1033': { nome: 'dimetiletere', pm: 46.068, Tb: 248.37, hv: 465.2, cpl: 2324, rhol: 669, rho_liq: 0.669, gam: 1.146, dHc: 28835, LFL: 2.7,
+      ps: { '-20': 1.242, '-10': 1.85, 0: 2.667, 10: 3.733, 20: 5.096, 30: 6.8, 40: 8.897, 50: 11.438 },
+      fonte: `proprietà fisiche ${HEOS}; ${LHV}; LFL 2,7% (${GESTIS})` },
+    '1035': { nome: 'etano', pm: 30.069, Tb: 184.57, hv: 489.4, cpl: 3505, rhol: 340, rho_liq: 0.340, gam: 1.191, dHc: 47511, LFL: 2.4,
+      ps: { '-20': 14.215, '-10': 18.588, 0: 23.867, 10: 30.172, 20: 37.655, 30: 46.551 },
+      fonte: `proprietà fisiche ${HEOS}; ${LHV}; LFL 2,4% (${GESTIS}, valore che differisce da CHEMSAFE)`,
+      avviso: 'Etano: temperatura critica 32,2 °C. Oltre circa 30 °C il recipiente contiene un fluido supercritico e il modello del liquido saturo perde validità (la tensione di vapore è presa a 30 °C).' },
+    '1969': { nome: 'isobutano', pm: 58.122, Tb: 261.4, hv: 365.1, cpl: 2310, rhol: 557, rho_liq: 0.557, gam: 1.096, dHc: 45552, LFL: 1.5,
+      ps: { '-20': 0.725, '-10': 1.084, 0: 1.57, 10: 2.206, 20: 3.022, 30: 4.047, 40: 5.312, 50: 6.849 },
+      fonte: `proprietà fisiche ${HEOS}; ${LHV}; LFL 1,5% (${GESTIS}, valore che differisce da CHEMSAFE)` },
+    '1063': { nome: 'cloruro di metile', pm: 50.488, Tb: 249.17, hv: 428.1, cpl: 1598, rhol: 922, rho_liq: 0.922, gam: 1.26, dHc: 12772, LFL: 7.6,
+      ps: { '-20': 1.201, '-10': 1.794, 0: 2.593, 10: 3.639, 20: 4.979, 30: 6.659, 40: 8.731, 50: 11.245 },
+      fonte: `proprietà fisiche ${HEOS}; ${LHV} (prodotti CO2, H2O e HCl gassosi); LFL 7,6% (${GESTIS})`,
+      avviso: 'Cloruro di metile: è anche tossico (IDLH NIOSH 2000 ppm); la dispersione tossica del gas non incendiato non è calcolata in questo scenario.' },
+    '1030': { nome: '1,1-difluoroetano (R152a)', pm: 66.05, Tb: 249.13, hv: 329.9, cpl: 1701, rhol: 912, rho_liq: 0.912, gam: 1.142, dHc: 16256, LFL: 4.0,
+      ps: { '-20': 1.207, '-10': 1.815, 0: 2.64, 10: 3.728, 20: 5.129, 30: 6.898, 40: 9.093, 50: 11.774 },
+      fonte: `proprietà fisiche ${HEOS}; ${LHV} (prodotti CO2, H2O e HF gassosi); LFL 4,0% (${GESTIS})` },
+    '1962': { nome: 'etilene compresso', compresso: true, pm: 28.053, gam: 1.244, dHc: 47165, LFL: 2.4,
+      Z: { 1: 0.994, 10: 0.938, 25: 0.833, 40: 0.703, 50: 0.588, 55: 0.512, 60: 0.406, 65: 0.308, 70: 0.286, 75: 0.286, 80: 0.292, 90: 0.31, 100: 0.331, 125: 0.387, 150: 0.446, 200: 0.561 }, Pdef: 60,
+      fonte: `fattore di compressibilità a 20 °C da CoolProp; ${LHV}; LFL 2,4% (${GESTIS}, valore che differisce da CHEMSAFE)`,
+      avviso: 'Etilene: temperatura critica 9,2 °C, a temperatura ambiente il gas è supercritico; vicino alla pressione di 60–80 bar la densità varia molto con la pressione. Il calcolo dell\'efflusso come gas ideale è indicativo.' }
   };
   for (const [u, p] of Object.entries(P)) {
     p.fonteLFL = GESTIS;
