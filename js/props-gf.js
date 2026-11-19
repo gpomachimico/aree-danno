@@ -13,6 +13,7 @@
     ps: { '-20': 2.445, '-10': 3.453, 0: 4.745, 10: 6.366, 20: 8.365, 30: 10.79, 40: 13.694, 50: 17.133 } };
   const CONT_LIQ = [['bomb', 'Bombola', 15, 6], ['ton', 'Serbatoio o recipiente a pressione da 1 t', 1000, 10], ['cist', 'Cisterna / tank-container', 20000, 25]];
   const CONT_COMP = [['bomb', 'Bombola da 50 L', 50, 6], ['pacco', 'Pacco bombole (12 × 50 L)', 600, 10], ['altro', 'Altro recipiente (capacità da inserire)', 1000, 10]];
+  const CONT_DISC = [['bomb', 'Bombola (circa 40–50 L)', 7, 6], ['pacco', 'Pacco bombole (12 bombole)', 84, 10], ['altro', 'Altro recipiente', 7, 6]];
   const P = {
     '1978': { ...PROPANO, nome: 'propano', dHc: 46300, LFL: 1.7,
       fonte: `proprietà fisiche ${HEOS}; potere calorifico inferiore 46,3 MJ/kg (NIST WebBook); LFL 1,7% (${GESTIS})` },
@@ -36,10 +37,14 @@
       Z: { 1: 1.001, 50: 1.03, 100: 1.061, 150: 1.092, 200: 1.125, 250: 1.158, 300: 1.191, 350: 1.224 }, Pdef: 200,
       fonte: `fattore di compressibilità ${HEOS.replace('tramite la libreria thermo', '')}; potere calorifico inferiore 120,0 MJ/kg (NIST WebBook, acqua gas −241,83 kJ/mol); LFL 4,0% (${GESTIS})`,
       avvisoJF: 'Idrogeno: la fiamma è quasi invisibile di giorno e irraggia poco; il rischio principale è il contatto diretto con la fiamma, che può essere lunga.' }
+,
+    '1001': { nome: 'acetilene disciolto (in acetone, bombola con massa porosa)', compresso: true, disciolto: true, pm: 26.037, gam: 1.226, dHc: 48210, LFL: 2.3, Pdef: 15, massaDef: 7,
+      fonte: `potere calorifico inferiore 48,2 MJ/kg da entalpie di formazione NIST WebBook (acetilene +226,7 kJ/mol); LFL 2,3% (IEC 80079-20-1, metodo EN 1839, scheda Air Liquide); gamma 1,23 dalla libreria thermo`,
+      avviso: 'Acetilene: una bombola esposta al fuoco o a un urto può innescare la decomposizione esplosiva dell\'acetilene all\'interno, anche senza aria; la bombola può scoppiare ore dopo l\'incendio. Questo effetto non è calcolato: seguire la Guida ERG 116 e le procedure del fornitore (raffreddamento prolungato, distanza di sicurezza).' }
   };
   for (const [u, p] of Object.entries(P)) {
     p.fonteLFL = GESTIS;
-    p.contenitori = p.compresso ? CONT_COMP : CONT_LIQ;
+    p.contenitori = p.disciolto ? CONT_DISC : p.compresso ? CONT_COMP : CONT_LIQ;
     const old = DATA.props[u] || {};
     DATA.props[u] = { ...old, ...p };
     const d = DATA.db[u];

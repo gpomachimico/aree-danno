@@ -311,7 +311,9 @@ function campiGF(p, m) {
   const sc = [m !== 'JF' && ['tot', 'Rilascio totale in 10 minuti (rottura del recipiente)'],
     !p.compresso && ['liq', 'Perdita da foro in fase liquida (foro sotto il pelo del liquido)'],
     ['gas', p.compresso ? 'Perdita da foro o da valvola' : 'Perdita da foro in fase gassosa (valvola o foro in alto)']].filter(Boolean);
-  const q = p.compresso
+  const q = p.disciolto
+    ? `<div class="row">${f('massa', 'Acetilene contenuto (kg)', def[2])}${f('pbar', 'Pressione (bar)', p.Pdef)}</div><p class="small">Gas disciolto: la massa di acetilene è indicata sulla bombola o dal fornitore (circa 6–8 kg per una bombola da 40–50 L); la pressione serve per la portata dal foro.</p>`
+    : p.compresso
     ? `<div class="row">${f('capL', 'Capacità del recipiente (L)', def[2])}${f('pbar', 'Pressione (bar)', p.Pdef)}</div><p class="small" id="gfmassa"></p>`
     : `<div class="row">${f('massa', 'Contenuto del recipiente (kg)', def[2])}</div>`;
   const nota = { JF: 'Soglie: irraggiamento stazionario 12,5 · 7 · 5 · 3 kW/m² (D.M. 9/5/2001). Del meteo si usa solo la temperatura.',
@@ -324,10 +326,10 @@ function campiGF(p, m) {
 }
 function bindGF(p) {
   const c = $('glc'), s = $('gls'), w = $('glfw');
-  const aggM = () => { if (p.compresso) { const V = num('capL'), P = num('pbar'); $('gfmassa').textContent = V > 0 && P > 0 ? `Massa di gas: ${massaCompresso(p, V, P).toFixed(1).replace('.', ',')} kg (a 20 °C, fattore di compressibilità da CoolProp)` : ''; } };
+  const aggM = () => { if (p.compresso && !p.disciolto) { const V = num('capL'), P = num('pbar'); $('gfmassa').textContent = V > 0 && P > 0 ? `Massa di gas: ${massaCompresso(p, V, P).toFixed(1).replace('.', ',')} kg (a 20 °C, fattore di compressibilità da CoolProp)` : ''; } };
   const agg = () => { w.style.visibility = s.value === 'tot' ? 'hidden' : 'visible'; };
-  c.addEventListener('change', () => { const o = contenitoriGF(p).find(x => x[0] === c.value); if (o) { $(p.compresso ? 'capL' : 'massa').value = o[2]; $('dforo').value = o[3]; aggM(); } });
-  if (p.compresso) { $('capL').addEventListener('input', aggM); $('pbar').addEventListener('input', aggM); }
+  c.addEventListener('change', () => { const o = contenitoriGF(p).find(x => x[0] === c.value); if (o) { $(p.compresso && !p.disciolto ? 'capL' : 'massa').value = o[2]; $('dforo').value = o[3]; aggM(); } });
+  if (p.compresso && !p.disciolto) { $('capL').addEventListener('input', aggM); $('pbar').addEventListener('input', aggM); }
   s.addEventListener('change', () => { agg(); if ($('eta')) $('eta').value = s.value === 'tot' ? '0.1' : '0.03'; });
   agg(); aggM();
 }
@@ -439,7 +441,12 @@ $('calc').onclick = () => {
       if (sc !== 'tot' && (dmm <= 0 || dmm > 300)) throw 'Diametro del foro fuori campo (1–300 mm)';
       let ms, Pb = null, cont;
       const nomeC = (contenitoriGF(p).find(x => x[0] === c) || [, 'recipiente'])[1].toLowerCase();
-      if (p.compresso) {
+      if (p.disciolto) {
+        ms = num('massa'); Pb = num('pbar');
+        if (!ms || ms <= 0) throw 'Inserire la massa di acetilene';
+        if (!Pb || Pb <= 1 || Pb > 30) throw 'Pressione fuori campo (1–30 bar)';
+        cont = `Recipiente: ${nomeC}, ${String(ms).replace('.', ',')} kg di ${p.nome}, pressione ${Pb} bar; il gas esce come vapore dalla soluzione, con efflusso calcolato come per un gas compresso alla pressione indicata (cautelativo: la pressione cala man mano che il gas si libera)`;
+      } else if (p.compresso) {
         const V = num('capL'); Pb = num('pbar');
         if (!V || V <= 0) throw 'Inserire la capacità del recipiente';
         if (!Pb || Pb <= 1 || Pb > 350) throw 'Pressione fuori campo (1–350 bar)';
@@ -462,6 +469,7 @@ $('calc').onclick = () => {
         risultati = M.vceMeteo({ ...base, eta: +$('eta').value }, meteo);
         risultati.forEach(r => r.ipotesi.push('Dati della sostanza: ' + p.fonte));
       }
+      if (p.avviso) risultati.forEach(r => r.avvisi = [p.avviso, ...(r.avvisi || [])]);
     } else if (m === 'TNT') {
       const { nem, origine } = leggiNEM();
       const fatt = num('fatt') || p.fattore, imbx = $('imbx').value;
