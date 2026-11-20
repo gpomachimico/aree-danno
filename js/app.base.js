@@ -13,7 +13,7 @@ function mostraRicerca() {
   box.querySelectorAll('button').forEach(b => b.onclick = () => { $('onu').value = b.dataset.u; box.innerHTML = ''; $('onu').dispatchEvent(new Event('input')); });
 }
 
-const NOMI_MOD = { PF: 'Pool fire', BL: 'BLEVE / fireball', GA: 'Dispersione tossica', GL: 'Gas tossico liquefatto', CL: 'Sviluppo di cloro con acidi', JF: 'Jet fire', FF: 'Flash fire', VCE: 'Esplosione da nube (VCE)', TNT: 'Esplosione (TNT equivalente)', ERG: 'Solo distanze ERG', NOS: 'Nome tecnico necessario' };
+const NOMI_MOD = { PF: 'Pool fire', BL: 'BLEVE / fireball', GA: 'Dispersione tossica', GL: 'Gas tossico liquefatto', CL: 'Ipoclorito: cloro o clorammine', W2: 'Reazione con acqua (Tabella 2 ERG)', JF: 'Jet fire', FF: 'Flash fire', VCE: 'Esplosione da nube (VCE)', TNT: 'Esplosione (TNT equivalente)', ERG: 'Solo distanze ERG', NOS: 'Nome tecnico necessario' };
 
 $('onu').addEventListener('input', () => {
   mostraRicerca();
@@ -171,9 +171,19 @@ function buildFields() {
   } else if (m === 'CL') {
     h = `<label>Imballaggio</label>${opzioniImbLiquidi().html}
       <div class="row">${f('vol', 'Volume di soluzione coinvolto (L)', opzioniImbLiquidi().vol)}${f('gpl', 'Cloro attivo (g/L)', p.gplDef)}</div>
-      <div class="row">${f('freaz', 'Quota di ipoclorito che reagisce (%)', 100, 'min="1" max="100"')}${f('durCl', 'Durata dello sviluppo di cloro (min)', 10, 'min="1" max="240"')}</div>
+      <label for="contCl">Contatto con</label><select id="contCl"><option value="Cl2">Acido → cloro (Cl2)</option><option value="NH2Cl">Ammoniaca, ambiente basico → monoclorammina (NH2Cl)</option><option value="NHCl2">Ammoniaca, ambiente debolmente acido → diclorammina (NHCl2)</option><option value="NCl3">Ammoniaca, ambiente acido e ipoclorito in eccesso → tricloruro di azoto (NCl3)</option></select>
+      <div class="row">${f('freaz', 'Quota di ipoclorito che reagisce (%)', 100, 'min="1" max="100"')}${f('durCl', 'Durata dello sviluppo del gas (min)', 10, 'min="1" max="240"')}</div>
+      <div class="row">${f('ariaCl', 'Quota del prodotto che passa in aria (%)', 100, 'min="1" max="100"')}<div></div></div>
+      <p class="small">Clorammine: la specie che si forma dipende dal pH e dal rapporto cloro/ammoniaca (IARC, monografia 84). La monoclorammina resta in buona parte disciolta: il 100% in aria è un limite superiore molto cautelativo; il tricloruro di azoto è poco solubile e passa facilmente in aria.</p>
       <p class="small">Scenario: la soluzione di ipoclorito viene a contatto con un acido (miscelazione accidentale, spandimento in un bacino comune, carico incompatibile) e libera cloro gassoso. Il cloro attivo si legge sulla scheda di sicurezza: se è indicato in % in peso, g/L = % × 10 × densità (circa 1,2). Valore proposto 150 g/L (soluzione commerciale al 12,5–15%). Con 100% si assume acido in eccesso (cautelativo).</p>
-      <p class="small">Soglie del cloro: LC50 ${p.LC50} ppm (ratto, ${p.LC50_t}) · IDLH ${p.IDLH} ppm · LOC ${p.LOC} ppm</p>`;
+      <p class="small">Soglie del cloro: LC50 ${p.LC50} ppm (ratto, ${p.LC50_t}) · IDLH ${p.IDLH} ppm · LOC ${p.LOC} ppm. Clorammine: valori PAC del DOE (nessun IDLH NIOSH).</p>`;
+  } else if (m === 'W2') {
+    const prod = p.prodotti.map(x => `${DATA.gasW2[x.gas].nome}: ${itn2(+x.resa.toFixed(3))} kg per kg (${itn2(x.n)} mol per mole)`).join('; ');
+    h = `<label for="imbW">Imballaggio</label><select id="imbW"><option value="25">Collo 25 kg</option><option value="250" selected>Fusto 250 kg</option><option value="1000">IBC 1000 kg</option><option value="20000">Cisterna 20 000 kg</option><option value="0">Altro (inserisci massa)</option></select>
+      <div class="row">${f('massaW', 'Massa che reagisce con l\'acqua (kg)', 250)}${f('titW', 'Titolo della sostanza nel prodotto (%)', 100, 'min="1" max="100"')}</div>
+      <div class="row">${f('ariaW', 'Quota del gas che passa in aria (%)', 100, 'min="1" max="100"')}${f('durW', 'Durata dello sviluppo del gas (min)', 10, 'min="1" max="240"')}</div>
+      <p class="small">Sostanza: ${p.nome} (${p.formula}, M = ${itn2(+p.pm.toFixed(2))} g/mol). Gas prodotti con l'acqua secondo la Tabella 2 ERG, resa stechiometrica: ${prod}.</p>
+      <p class="small">Con il 100% tutto il gas va in aria: limite superiore cautelativo. HCl, HF, HBr e NH3 sono molto solubili e, se lo spandimento avviene in molta acqua (mare, fiume), gran parte resta disciolta. La Tabella 2 ERG resta il riferimento di primo intervento.</p>`;
   } else if (m === 'GL') {
     h = campiGL(p);
   } else if (m === 'JF' || m === 'FF' || m === 'VCE') {
@@ -186,13 +196,14 @@ function buildFields() {
   }
   $('fields').innerHTML = h;
   $('inbox').classList.remove('hide');
-  $('meteobox').classList.toggle('hide', !(['GA', 'GL', 'CL', 'JF', 'FF', 'VCE'].includes(m) || (m === 'PF' && p.fumi && p.fumi.tipo !== 'qual') || (cur.tih && !['PF', 'BL', 'TNT'].includes(m))));
+  $('meteobox').classList.toggle('hide', !(['GA', 'GL', 'CL', 'W2', 'JF', 'FF', 'VCE'].includes(m) || (m === 'PF' && p.fumi && p.fumi.tipo !== 'qual') || (cur.tih && !['PF', 'BL', 'TNT'].includes(m))));
   if (p.fonte && m !== 'BL') $('fields').insertAdjacentHTML('beforeend', `<p class="small">Fonti dei dati: ${p.fonte}.</p>`);
   $('calc').classList.remove('hide');
   bindExtra();
   const imb = $('imb');
   if (imb) imb.addEventListener('change', () => { const v = +imb.value; if (v) { if ($('vol')) $('vol').value = v; if ($('massa')) $('massa').value = v; } });
   if (m === 'GA') bindForo();
+  if (m === 'W2') { const iw = $('imbW'); iw.onchange = () => { if (+iw.value) $('massaW').value = iw.value; }; }
   if (m === 'GL') bindGL();
   if (m === 'JF' || m === 'FF' || m === 'VCE') bindGF(p);
 }
@@ -489,18 +500,51 @@ $('calc').onclick = () => {
         soglie_ppm: { LC50: p.LC50, IDLH: p.IDLH, LOC: p.LOC }, sostanza: `${sost} ${c}%`,
         nota_soglie: `Soglie: LC50 30 min = ${p.LC50} ppm (LC50 ratto 1 h senza correzione temporale, scelta cautelativa); IDLH ${p.IDLH} ppm (NIOSH); LOC = IDLH/10 = ${p.LOC} ppm. Concentrazione ${c}%, densità ${dens.toFixed(3)}, tensione di vapore ${pv.toFixed(2)} kPa ${pvU ? '(inserita dall\'utente)' : '(International Critical Tables, 20 °C, tensione totale: cautelativo)'}` }, meteo);
     } else if (m === 'CL') {
-      const vol = num('vol'), gpl = num('gpl'), fr = num('freaz') ?? 100, dur = num('durCl') ?? 10;
+      const vol = num('vol'), gpl = num('gpl'), fr = num('freaz') ?? 100, dur = num('durCl') ?? 10, aria = num('ariaCl') ?? 100, sp = $('contCl').value;
       if (!vol || vol <= 0) throw 'Inserire il volume di soluzione';
       if (!gpl || gpl <= 0 || gpl > 250) throw 'Cloro attivo fuori campo (1–250 g/L)';
-      if (fr <= 0 || fr > 100) throw 'Quota che reagisce fuori campo (1–100%)';
+      if (fr <= 0 || fr > 100 || aria <= 0 || aria > 100) throw 'Percentuali fuori campo (1–100%)';
       if (dur <= 0 || dur > 240) throw 'Durata fuori campo (1–240 min)';
-      const mCl = vol * gpl / 1000 * fr / 100;
+      const mCl = vol * gpl / 1000 * fr / 100, nCl = mCl / 70.906 * 1000;      // kg di cloro attivo, mol
+      const meteo = meteoScelto(), durTxt = dur === 10 ? ' (stessa durata dello scenario peggiore di 40 CFR 68.25 per i gas; scelta di Claude, modificabile)' : ' (durata inserita dall\'utente)';
+      const base = `${itn2(vol)} L di soluzione × ${itn2(gpl)} g/L di cloro attivo × ${itn2(fr)}% che reagisce = ${itn2(+mCl.toFixed(1))} kg di cloro attivo (${itn2(Math.round(nCl))} mol)`;
+      let gp, mG, soglie, rif = null, rea, nota;
+      if (sp === 'Cl2') {
+        gp = p; mG = mCl * aria / 100; soglie = { LC50: p.LC50, IDLH: p.IDLH, LOC: p.LOC };
+        rea = `Cloro sviluppato dalla reazione con un acido (NaOCl + 2 HCl → NaCl + H2O + Cl2): ${base}`;
+        nota = `Soglie del cloro (UN 1017): LC50 = ${p.LC50} ppm (ratto, ${p.LC50_t}, senza correzione temporale); IDLH ${p.IDLH} ppm (NIOSH); LOC = IDLH/10 = ${p.LOC} ppm. Fonti: ${p.fonte}`;
+      } else {
+        const c = DATA.clorammine[sp];
+        gp = { pm: c.pm }; mG = nCl * c.perCl2 * c.pm / 1000 * aria / 100; soglie = { LC50: c.LC50, IDLH: c.IDLH, LOC: c.LOC }; rif = c.rif;
+        rea = `${c.nome} dalla reazione con ammoniaca (ammoniaca non limitante): ${c.reazione}. ${base} → ${itn2(+(nCl * c.perCl2 * c.pm / 1000).toFixed(1))} kg di ${c.nome.split(' (')[0]}`;
+        nota = `Soglie (scelta di Claude, in mancanza di IDLH NIOSH per le clorammine): Zona I ${c.rif.LC50}; Zona II ${c.rif.IDLH}; Zona III ${c.rif.LOC}. Fonte: ${c.fonte}`;
+      }
+      const nomeG = sp === 'Cl2' ? 'cloro' : DATA.clorammine[sp].nome;
+      risultati = M.gasLiquefattoMeteo({ massa_kg: +mG.toFixed(2), prop: gp, soglie_ppm: soglie, sostanza: `${sost}: ${nomeG} sviluppato ${sp === 'Cl2' ? 'a contatto con acidi' : 'a contatto con ammoniaca'}`,
+        generato: { durata_s: dur * 60, ipotesi: `${rea}; quota in aria ${itn2(aria)}% = ${itn2(+mG.toFixed(1))} kg, emessi a portata costante in ${itn2(dur)} min${durTxt}; gas a temperatura ambiente al suolo` },
+        contenitore: 'Soluzione di ipoclorito (UN 1791). Definizione del ' + p.fonteCl,
+        nota_soglie: nota }, meteo);
+      const avv = sp === 'Cl2' ? 'Ipoclorito: con ammoniaca o ammine si formano clorammine (scegliere "Contatto con: ammoniaca" per valutarle).'
+        : 'Clorammine: la specie reale dipende da pH e rapporto cloro/ammoniaca e spesso è una miscela; valutare anche le altre specie e lo scenario con acido. ' + (sp === 'NH2Cl' ? 'La monoclorammina è molto solubile: il 100% in aria è un limite superiore.' : sp === 'NCl3' ? 'Il tricloruro di azoto è instabile e può decomporsi in modo esplosivo.' : '');
+      risultati.forEach(r => { r.avvisi = [avv, ...(r.avvisi || [])]; if (rif) r.soglieRif = rif; });
+    } else if (m === 'W2') {
+      const ms = num('massaW'), tit = num('titW') ?? 100, aria = num('ariaW') ?? 100, dur = num('durW') ?? 10;
+      if (!ms || ms <= 0) throw 'Inserire la massa';
+      if (tit <= 0 || tit > 100 || aria <= 0 || aria > 100) throw 'Percentuali fuori campo (1–100%)';
+      if (dur <= 0 || dur > 240) throw 'Durata fuori campo (1–240 min)';
       const meteo = meteoScelto();
-      risultati = M.gasLiquefattoMeteo({ massa_kg: +mCl.toFixed(2), prop: p, soglie_ppm: { LC50: p.LC50, IDLH: p.IDLH, LOC: p.LOC }, sostanza: `${sost}: cloro sviluppato a contatto con acidi`,
-        generato: { durata_s: dur * 60, ipotesi: `Cloro sviluppato dalla reazione con un acido (NaOCl + 2 HCl → NaCl + H2O + Cl2): ${itn2(vol)} L di soluzione × ${itn2(gpl)} g/L di cloro attivo × ${itn2(fr)}% che reagisce = ${itn2(+mCl.toFixed(1))} kg di Cl2, emessi a portata costante in ${itn2(dur)} min${dur === 10 ? ' (stessa durata dello scenario peggiore di 40 CFR 68.25 per i gas; scelta di Claude, modificabile)' : ' (durata inserita dall\'utente)'}; gas a temperatura ambiente al suolo` },
-        contenitore: 'Soluzione di ipoclorito (UN 1791) a contatto con un acido. Definizione del ' + p.fonteCl,
-        nota_soglie: `Soglie del cloro (UN 1017): LC50 = ${p.LC50} ppm (ratto, ${p.LC50_t}, senza correzione temporale); IDLH ${p.IDLH} ppm (NIOSH); LOC = IDLH/10 = ${p.LOC} ppm. Fonti: ${p.fonte}` }, meteo);
-      risultati.forEach(r => r.avvisi = ['Ipoclorito: con ammoniaca o ammine forma clorammine, anch\'esse tossiche, non calcolate qui; il calcolo vale per il contatto con acidi.', ...(r.avvisi || [])]);
+      risultati = [];
+      for (const pr of p.prodotti) {
+        const g = DATA.gasW2[pr.gas], mG = ms * tit / 100 * pr.resa * aria / 100;
+        const rr = M.gasLiquefattoMeteo({ massa_kg: +mG.toFixed(2), prop: { pm: g.pm }, soglie_ppm: { LC50: g.LC50, IDLH: g.IDLH, LOC: g.LOC },
+          sostanza: `${sost}: ${g.nome} sviluppato a contatto con l'acqua`,
+          generato: { durata_s: dur * 60, ipotesi: `Reazione con l'acqua (gas della Tabella 2 ERG 2024): ${p.nome}, ${p.formula}, M = ${itn2(+p.pm.toFixed(2))} g/mol; ${itn2(pr.n)} mol di ${pr.gas} per mole, resa stechiometrica ${itn2(+pr.resa.toFixed(3))} kg/kg (scelta di Claude, reazione completa con acqua in eccesso). ${itn2(ms)} kg × titolo ${itn2(tit)}% × resa × quota in aria ${itn2(aria)}% = ${itn2(+mG.toFixed(1))} kg di ${pr.gas}, emessi a portata costante in ${itn2(dur)} min${dur === 10 ? ' (come lo scenario peggiore di 40 CFR 68.25 per i gas; modificabile)' : ' (durata inserita dall\'utente)'}; gas a temperatura ambiente al suolo` },
+          contenitore: `Spandimento di ${p.nome} in acqua o a contatto con acqua (pioggia, mare, schiuma, acqua di spegnimento)`,
+          nota_soglie: `Soglie di ${g.nome}: LC50 = ${g.LC50} ppm (ratto, ${g.LC50_t}, senza correzione temporale); IDLH ${g.IDLH} ppm; LOC = IDLH/10 = ${g.LOC} ppm. Fonti: ${g.fonte}` }, meteo);
+        rr.forEach(r => { if (p.prodotti.length > 1) r.scenario += ` – ${pr.gas}`; r.soglieRif = { LC50: `${g.LC50} ppm`, IDLH: `${g.IDLH} ppm`, LOC: `${g.LOC} ppm` }; r.gasW2 = pr.gas;
+          r.avvisi = [...(g.LC50 < g.IDLH ? [`${g.nome}: la LC50 disponibile (${g.LC50} ppm, ${g.LC50_t}) è minore dell'IDLH (${g.IDLH} ppm), quindi la distanza della Zona I risulta maggiore di quella della Zona II. In modo cautelativo considerare come limite esterno della Zona II la maggiore delle due distanze.`] : []), 'Molti di questi prodotti reagiscono violentemente con l\'acqua: la velocità di sviluppo del gas può essere molto maggiore di quella media assunta.', ...(p.avviso ? [p.avviso] : []), ...(r.avvisi || [])]; });
+        risultati.push(...rr);
+      }
     } else if (m === 'GL') {
       const ms = num('massa'); if (!ms || ms <= 0) throw 'Inserire il contenuto del recipiente';
       const sc = $('gls').value, dmm = num('dforo') || 10;
