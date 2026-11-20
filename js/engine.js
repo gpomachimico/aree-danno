@@ -123,13 +123,50 @@ function evaporazioneEPA({ area_m2, u_ms, pm, Pv_kPa, T_K }) {
   return QR_lbmin * 0.45359237 / 60;                            // kg/s
 }
 
+// Perdita continua da foro in un recipiente a pressione atmosferica (fusto, IBC, cisterna):
+// efflusso di Bernoulli con battente costante (portata iniziale, cautelativa), Cd 0,61 (foro a spigolo vivo);
+// la pozza si allarga con lo spessore minimo (EPA OCA 1999: 1 cm) fino al bacino, se c'è.
+// Bilancio: dV/dt = portata/ρ − (evaporazione/ρ, solo per liquidi puri); A = min(V/h, A_bacino); evaporazione = k·A.
+// Si prende come emissione costante quella massima, raggiunta alla fine della perdita o all'equilibrio.
+function pozzaDaForo({ volume_m3, rho, frazione = 1, d_mm, h_m, area_bacino = null, spessore_m = 0.01, k }) {
+  const Ah = Math.PI * Math.pow(d_mm / 1000, 2) / 4;
+  const mL = 0.61 * Ah * rho * Math.sqrt(2 * G0 * h_m);              // kg/s
+  const M = volume_m3 * rho, tr = M / mL;
+  const Alim = area_bacino ?? Infinity;
+  const A_eq = mL * frazione / k;                                     // area a cui l'evaporazione eguaglia l'afflusso di sostanza tossica
+  let V = 0, t = 0, Amax = 0, tA = 0;
+  const n = 4000, dt = tr / n;
+  for (let i = 0; i < n; i++) {
+    const A = Math.min(V / spessore_m, Alim);
+    const E = k * A;
+    V += (mL - (frazione === 1 ? E : 0)) / rho * dt;
+    t += dt;
+    const A2 = Math.min(Math.max(V, 0) / spessore_m, Alim);
+    if (A2 > Amax * 1.0001) { Amax = A2; tA = t; }
+  }
+  const limite = Amax >= Alim * 0.999 ? 'bacino' : Amax >= A_eq * 0.97 ? 'equilibrio' : 'fine';
+  const ipotesi = [
+    `Perdita continua da foro di ${d_mm} mm in recipiente a pressione atmosferica, battente di liquido ${itn(h_m, 1)} m: portata di Bernoulli ${itn(mL, 3)} kg/s (Cd 0,61, battente costante: portata iniziale, cautelativa); durata della perdita ${itn(tr / 60, 0)} min`,
+    `Pozza che si allarga con spessore ${spessore_m * 100} cm (EPA OCA 1999)${area_bacino ? `, fino al bacino di ${area_bacino} m²` : ', senza bacino'}; area massima ${itn(Amax, 1)} m² raggiunta dopo ${itn(tA / 60, 0)} min (${{ bacino: 'limitata dal bacino', equilibrio: 'equilibrio tra afflusso ed evaporazione', fine: 'fine della perdita' }[limite]})`,
+    'Emissione costante pari all\'evaporazione massima della pozza (cautelativo: prima di raggiungerla l\'emissione è minore)'
+  ];
+  return { mL, t_rilascio_s: tr, A_max: Amax, t_Amax_s: tA, E_max: k * Amax, A_eq, limite, ipotesi };
+}
+
 function gaussiano({ volume_m3, densita_soluzione, frazione_tossico = 1, pm, Pv_kPa, T_K = 293.15,
-                     soglie_ppm, stabilita = 'D', u_ms = 5, area_m2 = null, spessore_m = 0.01, sostanza = '', nota_soglie = '' }) {
-  const A = area_m2 ?? volume_m3 / spessore_m;
-  const Dp = Math.sqrt(4 * A / Math.PI);
-  const Q = evaporazioneEPA({ area_m2: A, u_ms, pm, Pv_kPa, T_K });     // kg/s
+                     soglie_ppm, stabilita = 'D', u_ms = 5, area_m2 = null, spessore_m = 0.01, sostanza = '', nota_soglie = '', foro = null }) {
   const massaTossico = volume_m3 * densita_soluzione * 1000 * frazione_tossico;
-  const durata_min = massaTossico / Q / 60;
+  let A, Q, durata_min, pz = null;
+  if (foro) {
+    pz = pozzaDaForo({ volume_m3, rho: densita_soluzione * 1000, frazione: frazione_tossico, d_mm: foro.d_mm, h_m: foro.h_m,
+      area_bacino: area_m2, spessore_m, k: evaporazioneEPA({ area_m2: 1, u_ms, pm, Pv_kPa, T_K }) });
+    A = pz.A_max; Q = pz.E_max; durata_min = pz.t_rilascio_s / 60;
+  } else {
+    A = area_m2 ?? volume_m3 / spessore_m;
+    Q = evaporazioneEPA({ area_m2: A, u_ms, pm, Pv_kPa, T_K });     // kg/s
+    durata_min = massaTossico / Q / 60;
+  }
+  const Dp = Math.sqrt(4 * A / Math.PI);
   const sig = BRIGGS_RURALE[stabilita];
   // sorgente virtuale: sigma_y(xv) = Dp / 4,3
   const xv = bisect(x => Dp / 4.3 - sig(x)[0], 1e-3, 1e5);
@@ -142,12 +179,13 @@ function gaussiano({ volume_m3, densita_soluzione, frazione_tossico = 1, pm, Pv_
     if (d[k] && Number.isFinite(d[k])) impronta[k] = improntaCurva(C_mgm3, x => sig(x + xv)[0], ppm2mg(ppm), d[k]);
   }
   return {
-    scenario: `Dispersione gaussiana – meteo ${stabilita}${u_ms}`, sostanza,
+    scenario: `Dispersione gaussiana${foro ? ' – perdita continua da foro' : ''} – meteo ${stabilita}${u_ms}`, sostanza,
     distanze_m: d, impronta,
     zone_m: { I: d.LC50, II: d.IDLH, III: d.LOC },
-    dettagli: { area_pozza_m2: +A.toFixed(1), portata_evaporazione_kg_s: +Q.toFixed(4), portata_kg_min: +(Q * 60).toFixed(2), durata_rilascio_min: +durata_min.toFixed(0), sorgente_virtuale_m: +xv.toFixed(1), conc_100m_ppm: r1(C_mgm3(100) / ppm2mg(1)) },
+    dettagli: { area_pozza_m2: +A.toFixed(1), ...(pz ? { portata_liquido_kg_s: +pz.mL.toFixed(3), tempo_area_max_min: +(pz.t_Amax_s / 60).toFixed(0) } : {}), portata_evaporazione_kg_s: +Q.toFixed(4), portata_kg_min: +(Q * 60).toFixed(2), durata_rilascio_min: +durata_min.toFixed(0), sorgente_virtuale_m: +xv.toFixed(1), conc_100m_ppm: r1(C_mgm3(100) / ppm2mg(1)) },
+    pozza: pz,
     ipotesi: [
-      area_m2 ? `Pozza confinata ${A} m²` : `Spandimento non confinato, spessore ${spessore_m * 100} cm (EPA OCA 1999)`,
+      ...(pz ? pz.ipotesi : [area_m2 ? `Pozza confinata ${A} m²` : `Spandimento non confinato, spessore ${spessore_m * 100} cm (EPA OCA 1999)`]),
       `Evaporazione EPA OCA 1999 eq. 3-3, tensione di vapore ${Pv_kPa} kPa a ${(T_K - 273.15).toFixed(0)} °C`,
       `Meteo: classe di stabilità ${stabilita}, vento ${u_ms} m/s; coefficienti di dispersione di Briggs, terreno aperto (rurale)`,
       'Rilascio continuo a livello del suolo, concentrazione sull\'asse del pennacchio a livello del suolo, stato stazionario',
@@ -303,9 +341,11 @@ function improntaCurva(f, sy, s, d, N = 48) {
 }
 const X_MAX_GL = 10000;   // limite di calcolo: validità dei coefficienti di Briggs (fino a 10 km)
 const itn = (v, n) => v.toFixed(n).replace('.', ',');
-function gasLiquefatto({ massa_kg, scenario = 'tot', d_mm = 10, h_m = 1, P_bar = null, prop, soglie_ppm, stabilita = 'D', u_ms = 5, T_C = 20, sostanza = '', nota_soglie = '', contenitore = '' }) {
+function gasLiquefatto({ massa_kg, scenario = 'tot', d_mm = 10, h_m = 1, P_bar = null, prop, soglie_ppm, stabilita = 'D', u_ms = 5, T_C = 20, sostanza = '', nota_soglie = '', contenitore = '', generato = null }) {
   const Ta = T_C + 273.15, M = prop.pm / 1000;
-  const comp = !!prop.compresso;                               // gas compresso (non liquefatto)
+  // generato: gas che si sviluppa da una reazione (es. ipoclorito + acido → cloro), { durata_s, ipotesi }: emissione costante a temperatura ambiente
+  if (generato) { scenario = 'tot'; P_bar = 1.01325; }
+  const comp = !!prop.compresso || !!generato;                 // gas compresso (non liquefatto) o generato da reazione
   if (comp && scenario === 'liq') throw 'Gas compresso: non esiste una fase liquida, scegliere il foro in fase gassosa o il rilascio totale';
   const Psat = comp ? P_bar * 1e5 : psatBar(prop.ps, T_C) * 1e5;
   const rho_a = P_ATM * 0.028964 / (R_GAS * Ta);
@@ -313,8 +353,8 @@ function gasLiquefatto({ massa_kg, scenario = 'tot', d_mm = 10, h_m = 1, P_bar =
   const flash = comp ? 0 : Ta > prop.Tb ? 1 - Math.exp(-prop.cpl * (Ta - prop.Tb) / (prop.hv * 1000)) : 0;
   let Q, T_s, Ts_K, ipoSorg, fo = null;
   if (scenario === 'tot') {
-    Q = massa_kg / 600; T_s = 600; Ts_K = comp ? Ta : Math.min(prop.Tb, Ta);
-    ipoSorg = `Rilascio dell'intero contenuto (${massa_kg} kg) come gas in 10 minuti: criterio dello scenario peggiore di 40 CFR 68.25 (EPA, Risk Management Program) per i gas ${comp ? 'compressi' : 'liquefatti sotto pressione'}`;
+    T_s = generato ? generato.durata_s : 600; Q = massa_kg / T_s; Ts_K = comp ? Ta : Math.min(prop.Tb, Ta);
+    ipoSorg = generato ? generato.ipotesi : `Rilascio dell'intero contenuto (${massa_kg} kg) come gas in 10 minuti: criterio dello scenario peggiore di 40 CFR 68.25 (EPA, Risk Management Program) per i gas ${comp ? 'compressi' : 'liquefatti sotto pressione'}`;
   } else {
     fo = portataForo({ fase: scenario, d_mm, P_Pa: Psat, T_K: Ta, prop, h_m });
     Q = fo.Q; if (!(Q > 0)) throw 'Con questa temperatura la pressione nel recipiente non supera quella atmosferica: rilascio in fase gassosa non calcolabile';
@@ -377,13 +417,13 @@ function gasLiquefatto({ massa_kg, scenario = 'tot', d_mm = 10, h_m = 1, P_bar =
   if (!comp && scenario !== 'gas' && flash < 0.01) avvisi.push(`Alla temperatura di ${itn(T_C, 0)} °C il liquido è sotto o vicino alla temperatura di ebollizione (${itn(prop.Tb - 273.15, 1)} °C): non vaporizza per flash ma forma una pozza che evapora. Considerare tutto il rilascio in aria, come fa il calcolo, è molto cautelativo.`);
   if (durata > 3600) avvisi.push(`Durata del rilascio stimata ${Math.round(durata / 60)} min: le soglie LC50 riferite a 30–60 min sono superate in durata, la zona I è sottostimata per esposizioni lunghe`);
   return {
-    scenario: `Gas tossico liquefatto – meteo ${stabilita}${u_ms}`, sostanza,
+    scenario: `${generato ? 'Gas tossico sviluppato da reazione' : 'Gas tossico liquefatto'} – meteo ${stabilita}${u_ms}`, sostanza,
     distanze_m: d, oltre_m: X_MAX_GL, impronta,
     zone_m: { I: d.LC50, II: d.IDLH, III: d.LOC },
     interno: { Q, T_s, mNube },
     dettagli: {
       portata_kg_s: +Q.toFixed(3), durata_rilascio_min: +(durata / 60).toFixed(1), massa_kg: massa_kg,
-      [comp ? 'pressione_bar' : 'tensione_vapore_bar']: +(Psat / 1e5).toFixed(2), ...(comp ? {} : { frazione_flash: +flash.toFixed(3) }),
+      ...(generato ? {} : { [comp ? 'pressione_bar' : 'tensione_vapore_bar']: +(Psat / 1e5).toFixed(2) }), ...(comp ? {} : { frazione_flash: +flash.toFixed(3) }),
       densita_nube_kg_m3: +rho_s.toFixed(2), densita_aria_kg_m3: +rho_a.toFixed(2),
       criterio_BM_continuo: +pl.criterio.toFixed(3), criterio_BM_istantaneo: +nu.criterio.toFixed(3),
       ...Object.fromEntries(Object.keys(soglie_ppm).map(k => ['modello_' + k, gov[k]]))
@@ -642,6 +682,6 @@ function gaussianoMeteo(param, meteo = METEO_PREDEFINITO) {
   });
 }
 
-const api = { SOGLIE, METEO_PREDEFINITO, poolFire, bleve, gaussiano, gaussianoMeteo, controllaMeteo, tnt, kingeryBulmash_bar, kinneyGraham_bar, fattoreVistaCilindro, evaporazioneEPA, gasLiquefatto, gasLiquefattoMeteo, jetFire, flashFire, flashFireMeteo, vce, vceMeteo, fumiIncendio, innalzamento, qdDoD, bmPennacchio, bmNube, portataForo, psatBar };
+const api = { SOGLIE, METEO_PREDEFINITO, poolFire, bleve, gaussiano, gaussianoMeteo, controllaMeteo, tnt, kingeryBulmash_bar, kinneyGraham_bar, fattoreVistaCilindro, evaporazioneEPA, gasLiquefatto, gasLiquefattoMeteo, jetFire, flashFire, flashFireMeteo, vce, vceMeteo, fumiIncendio, innalzamento, qdDoD, bmPennacchio, bmNube, portataForo, psatBar, pozzaDaForo };
 if (typeof module !== 'undefined') module.exports = api;
 if (typeof window !== 'undefined') window.MotoreAree = api;

@@ -45,4 +45,11 @@
     d.modello = p.modelli[0];
     d.propsGL = true;
   }
+  // UN 1791 soluzione di ipoclorito: sviluppo di cloro a contatto con acidi (V2, 20/11/2026)
+  // stesse proprietà e soglie del cloro UN 1017; massa di cloro dal cloro attivo (g/L) della soluzione
+  const d1791 = DATA.db['1791'];
+  DATA.props['1791'] = { ...P['1017'], modelli: ['CL', 'ERG'], nome: 'cloro sviluppato dalla soluzione di ipoclorito a contatto con acidi',
+    gplDef: 150,
+    fonteCl: 'cloro attivo = massa di Cl2 che l\'ipoclorito libera con un acido (NaOCl + 2 HCl → NaCl + H2O + Cl2: stesso potere ossidante); in g/L = % "commerciale" × 10, % in peso = g/L / (10 × densità) (documento tecnico "Bleach Information" sulle unità del cloro attivo; scheda tecnica Hypo 150: soluzione al 12,5–15% di NaOCl, cloro attivo 142,7–177,4 g/L, tipico 155 g/L, densità 1,20–1,24 a 20 °C)' };
+  if (d1791) { d1791.modelli = ['CL', 'ERG']; d1791.modello = 'CL'; }
 })();

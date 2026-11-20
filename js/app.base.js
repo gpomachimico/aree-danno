@@ -13,7 +13,7 @@ function mostraRicerca() {
   box.querySelectorAll('button').forEach(b => b.onclick = () => { $('onu').value = b.dataset.u; box.innerHTML = ''; $('onu').dispatchEvent(new Event('input')); });
 }
 
-const NOMI_MOD = { PF: 'Pool fire', BL: 'BLEVE / fireball', GA: 'Dispersione tossica', GL: 'Gas tossico liquefatto', JF: 'Jet fire', FF: 'Flash fire', VCE: 'Esplosione da nube (VCE)', TNT: 'Esplosione (TNT equivalente)', ERG: 'Solo distanze ERG', NOS: 'Nome tecnico necessario' };
+const NOMI_MOD = { PF: 'Pool fire', BL: 'BLEVE / fireball', GA: 'Dispersione tossica', GL: 'Gas tossico liquefatto', CL: 'Sviluppo di cloro con acidi', JF: 'Jet fire', FF: 'Flash fire', VCE: 'Esplosione da nube (VCE)', TNT: 'Esplosione (TNT equivalente)', ERG: 'Solo distanze ERG', NOS: 'Nome tecnico necessario' };
 
 $('onu').addEventListener('input', () => {
   mostraRicerca();
@@ -160,12 +160,20 @@ function buildFields() {
     h = `<label>Imballaggio</label>${opzioniImbLiquidi().html}
       <div class="row">${f('vol', 'Volume rilasciato (L)', opzioniImbLiquidi().vol)}${f('area', 'Area bacino (m²)', '', 'placeholder="non confinato"')}</div>
       <div class="row">${f('pv', `Tensione di vapore (kPa) – vuoto = ${String(p.pv).replace('.', ',')} kPa`, '', 'placeholder="da banca dati"')}<div></div></div>
+      ${campiForo()}
       <p class="small">Sostanza di calcolo: ${p.nome}. Soglie: LC50 ${p.LC50} ppm (ratto, ${p.LC50_t}) · IDLH ${p.IDLH} ppm · LOC ${p.LOC} ppm</p>`;
   } else if (m === 'GA') {
     h = `<label>Imballaggio</label>${opzioniImbLiquidi().html}
       <div class="row">${f('vol', 'Volume rilasciato (L)', opzioniImbLiquidi().vol)}${f('conc', 'Concentrazione HCl (%)', 33, 'min="30" max="38"')}</div>
       <div class="row">${f('pv', 'Tensione di vapore (kPa) – vuoto = da tabella', '', 'placeholder="da tabella"')}${f('area', 'Area bacino (m²)', '', 'placeholder="non confinato"')}</div>
+      ${campiForo()}
       <p class="small">Soglie: LC50 30 min ${p.LC50} ppm · IDLH ${p.IDLH} ppm · LOC ${p.LOC} ppm</p>`;
+  } else if (m === 'CL') {
+    h = `<label>Imballaggio</label>${opzioniImbLiquidi().html}
+      <div class="row">${f('vol', 'Volume di soluzione coinvolto (L)', opzioniImbLiquidi().vol)}${f('gpl', 'Cloro attivo (g/L)', p.gplDef)}</div>
+      <div class="row">${f('freaz', 'Quota di ipoclorito che reagisce (%)', 100, 'min="1" max="100"')}${f('durCl', 'Durata dello sviluppo di cloro (min)', 10, 'min="1" max="240"')}</div>
+      <p class="small">Scenario: la soluzione di ipoclorito viene a contatto con un acido (miscelazione accidentale, spandimento in un bacino comune, carico incompatibile) e libera cloro gassoso. Il cloro attivo si legge sulla scheda di sicurezza: se è indicato in % in peso, g/L = % × 10 × densità (circa 1,2). Valore proposto 150 g/L (soluzione commerciale al 12,5–15%). Con 100% si assume acido in eccesso (cautelativo).</p>
+      <p class="small">Soglie del cloro: LC50 ${p.LC50} ppm (ratto, ${p.LC50_t}) · IDLH ${p.IDLH} ppm · LOC ${p.LOC} ppm</p>`;
   } else if (m === 'GL') {
     h = campiGL(p);
   } else if (m === 'JF' || m === 'FF' || m === 'VCE') {
@@ -178,14 +186,36 @@ function buildFields() {
   }
   $('fields').innerHTML = h;
   $('inbox').classList.remove('hide');
-  $('meteobox').classList.toggle('hide', !(['GA', 'GL', 'JF', 'FF', 'VCE'].includes(m) || (m === 'PF' && p.fumi && p.fumi.tipo !== 'qual') || (cur.tih && !['PF', 'BL', 'TNT'].includes(m))));
+  $('meteobox').classList.toggle('hide', !(['GA', 'GL', 'CL', 'JF', 'FF', 'VCE'].includes(m) || (m === 'PF' && p.fumi && p.fumi.tipo !== 'qual') || (cur.tih && !['PF', 'BL', 'TNT'].includes(m))));
   if (p.fonte && m !== 'BL') $('fields').insertAdjacentHTML('beforeend', `<p class="small">Fonti dei dati: ${p.fonte}.</p>`);
   $('calc').classList.remove('hide');
   bindExtra();
   const imb = $('imb');
   if (imb) imb.addEventListener('change', () => { const v = +imb.value; if (v) { if ($('vol')) $('vol').value = v; if ($('massa')) $('massa').value = v; } });
+  if (m === 'GA') bindForo();
   if (m === 'GL') bindGL();
   if (m === 'JF' || m === 'FF' || m === 'VCE') bindGF(p);
+}
+
+// ---------- liquidi: spandimento istantaneo o perdita continua da foro (V2, 20/11/2026) ----------
+const BATTENTE = { 200: 0.8, 1000: 1.0, 24000: 2.0 };
+function campiForo() {
+  return `<label for="rilL">Tipo di rilascio</label><select id="rilL"><option value="ist">Spandimento istantaneo di tutto il volume</option><option value="foro">Perdita continua da foro</option></select>
+    <div id="foroBox" class="hide"><div class="row">${f('dforoL', 'Diametro del foro (mm)', 25, 'min="1" max="300"')}${f('battL', 'Battente di liquido sopra il foro (m)', 1)}</div>
+    <p class="small">Perdita da recipiente a pressione atmosferica (fusto, IBC, cisterna). La pozza si allarga mentre il liquido esce; l'area è limitata dal bacino, se indicato. Battenti proposti: fusto 0,8 m, IBC 1 m, cisterna 2 m.</p></div>`;
+}
+function bindForo() {
+  const r = $('rilL'); if (!r) return;
+  r.onchange = () => $('foroBox').classList.toggle('hide', r.value !== 'foro');
+  const imb = $('imb'), set = () => { const b = BATTENTE[+imb.value]; if (b) $('battL').value = b; };
+  if (imb) { imb.addEventListener('change', set); set(); }
+}
+function leggiForo() {
+  if (!$('rilL') || $('rilL').value !== 'foro') return null;
+  const d = num('dforoL'), h = num('battL');
+  if (!d || d <= 0 || d > 300) throw 'Diametro del foro fuori campo (1–300 mm)';
+  if (!h || h <= 0 || h > 10) throw 'Battente fuori campo (0–10 m)';
+  return { d_mm: d, h_m: h };
 }
 
 // ---------- gas tossici liquefatti (V2, gruppo 1) ----------
@@ -423,6 +453,7 @@ function meteoScelto() { return meteoUser ? [{ stabilita: $('stab').value, u_ms:
 $('mPre').onclick = () => { meteoUser = false; $('mPre').classList.add('on'); $('mUser').classList.remove('on'); $('meteoUser').classList.add('hide'); };
 $('mUser').onclick = () => { meteoUser = true; $('mUser').classList.add('on'); $('mPre').classList.remove('on'); $('meteoUser').classList.remove('hide'); };
 
+const itn2 = v => String(v).replace('.', ',');
 const num = id => { const e = $(id); if (!e || e.value === '') return null; const v = parseFloat(e.value.replace(',', '.')); return Number.isFinite(v) ? v : null; };
 function interpLog(tab, c) { const k = Object.keys(tab).map(Number).sort((a, b) => a - b); c = Math.min(Math.max(c, k[0]), k[k.length - 1]); for (let i = 0; i < k.length - 1; i++) if (c <= k[i + 1]) { const a = k[i], b = k[i + 1]; return Math.exp(Math.log(tab[a]) + (Math.log(tab[b]) - Math.log(tab[a])) * (c - a) / (b - a)); } return tab[k[k.length - 1]]; }
 function interpLin(tab, c) { const k = Object.keys(tab).map(Number).sort((a, b) => a - b); c = Math.min(Math.max(c, k[0]), k[k.length - 1]); for (let i = 0; i < k.length - 1; i++) if (c <= k[i + 1]) { const a = k[i], b = k[i + 1]; return tab[a] + (tab[b] - tab[a]) * (c - a) / (b - a); } return tab[k[k.length - 1]]; }
@@ -443,7 +474,8 @@ $('calc').onclick = () => {
       const vol = num('vol'); if (!vol || vol <= 0) throw 'Inserire il volume';
       const pvU = num('pv'), pv = pvU ?? p.pv, Trif = p.pv_T ?? 20;
       const meteo = meteoScelto();
-      risultati = M.gaussianoMeteo({ volume_m3: vol / 1000, densita_soluzione: p.dens, frazione_tossico: p.frazione || 1, pm: p.pm, Pv_kPa: pv, Pv_rif_T_C: pvU ? undefined : Trif, area_m2: num('area'),
+      const foro = leggiForo();
+      risultati = M.gaussianoMeteo({ foro, volume_m3: vol / 1000, densita_soluzione: p.dens, frazione_tossico: p.frazione || 1, pm: p.pm, Pv_kPa: pv, Pv_rif_T_C: pvU ? undefined : Trif, area_m2: num('area'),
         soglie_ppm: { LC50: p.LC50, IDLH: p.IDLH, LOC: p.LOC }, sostanza: `${sost} (${p.nome})`,
         nota_soglie: `Soglie: LC50 = ${p.LC50} ppm (ratto, ${p.LC50_t}, senza correzione temporale: cautelativo se la durata supera 30 min); IDLH ${p.IDLH} ppm (NIOSH); LOC = IDLH/10 = ${p.LOC} ppm. Tensione di vapore ${pv} kPa ${pvU ? '(inserita dall\'utente)' : '(banca dati, ' + Trif + ' °C)'}${p.frazione ? '; frazione di sostanza tossica ' + p.frazione : ''}. Fonti: ${p.fonte}` }, meteo);
       if (p.avviso) risultati.forEach(r => r.avvisi = [p.avviso, ...(r.avvisi || [])]);
@@ -452,9 +484,23 @@ $('calc').onclick = () => {
       const c = num('conc') || 33, pvU = num('pv');
       const pv = pvU ?? interpLog(p.pv, c), dens = interpLin(p.dens, c);
       const meteo = meteoScelto();
-      risultati = M.gaussianoMeteo({ volume_m3: vol / 1000, densita_soluzione: dens, frazione_tossico: c / 100, pm: p.pm, Pv_kPa: +pv.toFixed(2), Pv_rif_T_C: pvU ? undefined : 20, area_m2: num('area'),
+      const foro = leggiForo();
+      risultati = M.gaussianoMeteo({ foro, volume_m3: vol / 1000, densita_soluzione: dens, frazione_tossico: c / 100, pm: p.pm, Pv_kPa: +pv.toFixed(2), Pv_rif_T_C: pvU ? undefined : 20, area_m2: num('area'),
         soglie_ppm: { LC50: p.LC50, IDLH: p.IDLH, LOC: p.LOC }, sostanza: `${sost} ${c}%`,
         nota_soglie: `Soglie: LC50 30 min = ${p.LC50} ppm (LC50 ratto 1 h senza correzione temporale, scelta cautelativa); IDLH ${p.IDLH} ppm (NIOSH); LOC = IDLH/10 = ${p.LOC} ppm. Concentrazione ${c}%, densità ${dens.toFixed(3)}, tensione di vapore ${pv.toFixed(2)} kPa ${pvU ? '(inserita dall\'utente)' : '(International Critical Tables, 20 °C, tensione totale: cautelativo)'}` }, meteo);
+    } else if (m === 'CL') {
+      const vol = num('vol'), gpl = num('gpl'), fr = num('freaz') ?? 100, dur = num('durCl') ?? 10;
+      if (!vol || vol <= 0) throw 'Inserire il volume di soluzione';
+      if (!gpl || gpl <= 0 || gpl > 250) throw 'Cloro attivo fuori campo (1–250 g/L)';
+      if (fr <= 0 || fr > 100) throw 'Quota che reagisce fuori campo (1–100%)';
+      if (dur <= 0 || dur > 240) throw 'Durata fuori campo (1–240 min)';
+      const mCl = vol * gpl / 1000 * fr / 100;
+      const meteo = meteoScelto();
+      risultati = M.gasLiquefattoMeteo({ massa_kg: +mCl.toFixed(2), prop: p, soglie_ppm: { LC50: p.LC50, IDLH: p.IDLH, LOC: p.LOC }, sostanza: `${sost}: cloro sviluppato a contatto con acidi`,
+        generato: { durata_s: dur * 60, ipotesi: `Cloro sviluppato dalla reazione con un acido (NaOCl + 2 HCl → NaCl + H2O + Cl2): ${itn2(vol)} L di soluzione × ${itn2(gpl)} g/L di cloro attivo × ${itn2(fr)}% che reagisce = ${itn2(+mCl.toFixed(1))} kg di Cl2, emessi a portata costante in ${itn2(dur)} min${dur === 10 ? ' (stessa durata dello scenario peggiore di 40 CFR 68.25 per i gas; scelta di Claude, modificabile)' : ' (durata inserita dall\'utente)'}; gas a temperatura ambiente al suolo` },
+        contenitore: 'Soluzione di ipoclorito (UN 1791) a contatto con un acido. Definizione del ' + p.fonteCl,
+        nota_soglie: `Soglie del cloro (UN 1017): LC50 = ${p.LC50} ppm (ratto, ${p.LC50_t}, senza correzione temporale); IDLH ${p.IDLH} ppm (NIOSH); LOC = IDLH/10 = ${p.LOC} ppm. Fonti: ${p.fonte}` }, meteo);
+      risultati.forEach(r => r.avvisi = ['Ipoclorito: con ammoniaca o ammine forma clorammine, anch\'esse tossiche, non calcolate qui; il calcolo vale per il contatto con acidi.', ...(r.avvisi || [])]);
     } else if (m === 'GL') {
       const ms = num('massa'); if (!ms || ms <= 0) throw 'Inserire il contenuto del recipiente';
       const sc = $('gls').value, dmm = num('dforo') || 10;

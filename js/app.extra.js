@@ -1,6 +1,6 @@
 /* Estensioni dell'app installabile: mappa, GPS, impostazioni, report stampabile, offline */
 'use strict';
-const VERSIONE = '1.5-beta';
+const VERSIONE = '1.6-beta';
 
 // ---------- impostazioni (solo su questo dispositivo) ----------
 const FIRMATARIO_DEFAULT = { nome: 'Dott. Gianluca POMA', qualifica: 'Consulente Chimico di Porto' };
@@ -145,7 +145,7 @@ const DEF_SCENARI = [
   [/Flash fire/, 'Flash fire (incendio di nube)', 'Combustione rapida, senza onda d\'urto significativa, di una nube di gas o vapori infiammabili che si è dispersa in aria e si accende in ritardo. La fiamma percorre in pochi secondi la parte della nube con concentrazione entro i limiti di infiammabilità: il danno riguarda soprattutto chi si trova dentro la nube, per questo le soglie sono il limite inferiore di infiammabilità (LFL) e la sua metà.'],
   [/VCE/, 'VCE (Vapour Cloud Explosion, esplosione di nube di vapore)', 'Combustione di una nube infiammabile in cui il fronte di fiamma accelera, soprattutto per la presenza di ostacoli, tubazioni e zone congestionate, fino a generare un\'onda di sovrappressione. Il danno è dato dalla sovrappressione: effetti diretti sulle persone e, soprattutto, effetti indiretti per crolli e proiezione di vetri e frammenti.'],
   [/BLEVE/, 'BLEVE (Boiling Liquid Expanding Vapour Explosion)', 'Cedimento improvviso di un recipiente che contiene un liquido in pressione a temperatura superiore a quella di ebollizione a pressione atmosferica, di solito perché un incendio lo investe e ne indebolisce le pareti. Il liquido vaporizza istantaneamente: se è infiammabile si forma una sfera di fuoco (fireball) che dura pochi secondi; si producono anche un\'onda di pressione e la proiezione di frammenti del recipiente. L\'app calcola l\'irraggiamento della fireball.'],
-  [/Gas tossico liquefatto|gaussiana/, 'Dispersione tossica', 'Rilascio di una sostanza tossica che forma in aria una nube o un pennacchio trasportato dal vento. Il danno è dato dall\'inalazione: dipende dalla concentrazione e dalla durata dell\'esposizione, per questo le soglie sono LC50, IDLH e LOC e le distanze dipendono dal meteo.']
+  [/Gas tossico|gaussiana/, 'Dispersione tossica', 'Rilascio di una sostanza tossica che forma in aria una nube o un pennacchio trasportato dal vento. Il danno è dato dall\'inalazione: dipende dalla concentrazione e dalla durata dell\'esposizione, per questo le soglie sono LC50, IDLH e LOC e le distanze dipendono dal meteo.']
 ];
 const defScenario = r => DEF_SCENARI.find(([re]) => re.test(r.scenario || ''));
 
@@ -173,7 +173,7 @@ function legendaSoglie(r) {
   else if (/BLEVE/.test(r.scenario)) { grand = 'Irraggiamento termico variabile (dose termica della fireball)'; val = { elevata_letalita: 'raggio della fireball', inizio_letalita: '350 kJ/m²', lesioni_irreversibili: '200 kJ/m²', lesioni_reversibili: '125 kJ/m²' }; }
   else if (/TNT|VCE/.test(r.scenario)) { grand = 'Sovrappressione di picco'; val = { elevata_letalita: '0,3 bar', elevata_letalita_spazi_aperti: '0,6 bar', inizio_letalita: '0,14 bar', lesioni_irreversibili: '0,07 bar', lesioni_reversibili: '0,03 bar' }; }
   else if (/Flash fire/.test(r.scenario)) { grand = 'Concentrazione in aria del gas infiammabile'; val = { elevata_letalita: `LFL = ${String(p.LFL).replace('.', ',')}% in volume`, inizio_letalita: `½ LFL = ${String(p.LFL / 2).replace('.', ',')}% in volume` }; }
-  else if (/gaussiana|Gas tossico liquefatto/.test(r.scenario)) { grand = 'Concentrazione in aria della sostanza tossica'; val = { LC50: `${p.LC50} ppm`, IDLH: `${p.IDLH} ppm`, LOC: `${p.LOC} ppm` }; }
+  else if (/gaussiana|Gas tossico/.test(r.scenario)) { grand = 'Concentrazione in aria della sostanza tossica'; val = { LC50: `${p.LC50} ppm`, IDLH: `${p.IDLH} ppm`, LOC: `${p.LOC} ppm` }; }
   const righe = Object.keys(r.distanze_m || {}).map(k => ({ chiave: k, nome: SIG[k] ? SIG[k].split(':')[0] : k, valore: val[k] || '', distanza: r.distanze_m[k], significato: SIG[k] ? (t => t.charAt(0).toUpperCase() + t.slice(1))(SIG[k].split(': ').slice(1).join(': ')) : '' }));
   return { grandezza: grand, righe };
 }
