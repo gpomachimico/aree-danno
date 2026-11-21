@@ -388,14 +388,16 @@ function bindGF(p) {
 }
 
 // ---------- linee di confidenza sulla direzione del vento (opzione stile ALOHA, scelta di Luca 19/11/2026) ----------
-// ALOHA (Jones et al. 2013, NOAA TM NOS OR&R 43, § 4.5.3) ruota l'impronta di un angolo α basato sulla larghezza del pennacchio
-// gaussiano a 5 minuti di trasporto; il coefficiente esatto della formula non è stato verificato sul testo originale.
-// Finché ALOHA_VERIFICATO è false si usa l'angolo fisso del modello NATO ATP-45 (cerchio con vento ≤ 10 km/h, settore di semiampiezza 30° oltre)
-const ALOHA_VERIFICATO = false;
-function angoloConfidenza(u) {
-  if (ALOHA_VERIFICATO) return { cerchio: false, gradi: null, fedele: true, testo: '' };
-  if (u <= 10 / 3.6) return { cerchio: true, gradi: 180, fedele: false, testo: `Linee di confidenza: con vento di ${String(u).replace('.', ',')} m/s (≤ 10 km/h) la direzione è poco prevedibile e la zona è disegnata come cerchio di raggio pari alla distanza (modello NATO ATP-45). Metodo NON fedele ad ALOHA: il coefficiente della formula di ALOHA per l'angolo di confidenza non è stato verificato sul testo originale, quindi si usa un angolo fisso dichiarato.` };
-  return { cerchio: false, gradi: 30, fedele: false, testo: `Linee di confidenza: impronta ruotata di ±30° attorno alla direzione del vento (semiampiezza del settore del modello NATO ATP-45 per vento oltre 10 km/h). Metodo NON fedele ad ALOHA: il coefficiente della formula di ALOHA per l'angolo di confidenza non è stato verificato sul testo originale, quindi si usa un angolo fisso dichiarato.` };
+// Formula ALOHA verificata il 21/11/2026 sul testo fornito da Luca (Jones et al. 2013, NOAA TM NOS OR&R 43, § 4.5.3 "Confidence contours"):
+// α = arctan(2·σy / (300·U3)), con U3 vento a 3 m in m/s e 300·U3 = distanza percorsa dalla nube in 5 minuti; σy valutato a quella distanza.
+// Scelte di Claude: vento a 3 m dal vento a 10 m con la legge di potenza e gli esponenti rurali ISC3 (EPA-454/B-95-003b); σy di Briggs rurale, come nel resto dell'app.
+const ALOHA_VERIFICATO = true;
+const P_VENTO = { A: 0.07, B: 0.07, C: 0.10, D: 0.15, E: 0.35, F: 0.55 };
+function angoloConfidenza(u10, stab = 'D') {
+  const p = P_VENTO[stab] ?? 0.15, U3 = u10 * Math.pow(3 / 10, p), x5 = 300 * U3, sy = M.BRIGGS_RURALE[stab] ? M.BRIGGS_RURALE[stab](x5)[0] : 0.08 * x5;
+  const a = Math.atan(2 * sy / x5) * 180 / Math.PI, f1 = v => String(+v.toFixed(1)).replace('.', ',');
+  return { cerchio: false, gradi: a, fedele: true,
+    testo: `Linee di confidenza secondo il metodo di ALOHA (Jones et al. 2013, NOAA TM NOS OR&R 43, § 4.5.3): impronta ruotata di ±α attorno alla direzione del vento, con α = arctan(2·σy / (300·U3)) = ${f1(a)}°. U3 = vento a 3 m = ${f1(U3)} m/s, ricavato dal vento a 10 m (${f1(u10)} m/s) con la legge di potenza, esponente ${String(p).replace('.', ',')} per la classe ${stab} (ISC3, terreno rurale); 300·U3 = ${Math.round(x5)} m, distanza percorsa in 5 minuti; σy = ${f1(sy)} m a quella distanza (Briggs rurale). Metodo fedele ad ALOHA nella formula dell'angolo; il calcolo di σy e del vento a 3 m è quello dell'app.` };
 }
 // Nota sulla rappresentazione grafica e sulla dipendenza dal vento, per ogni scenario (richiesta di Luca, 19/11/2026)
 const EFFETTO = [[/Pool fire|Jet fire/, 'l\'irraggiamento termico stazionario non dipende'], [/BLEVE/, 'l\'irraggiamento della fireball non dipende'], [/TNT/, 'la sovrappressione dell\'esplosione non dipende'], [/Distanze ERG/, 'le distanze fisse dell\'ERG per questa voce non dipendono']];
@@ -411,7 +413,7 @@ function notaVento(r) {
   } else if (dip) {
     out.push(r.soloERG ? 'Dipendenza dal vento: la protezione sottovento dell\'ERG dipende dalla direzione del vento.' : 'Dipendenza dal vento: lo scenario è una nube trasportata dal vento, quindi le zone si estendono sottovento.');
     if (dv == null) out.push(r.meteoReale ? 'Direzione del vento non indicata: le distanze sottovento sono disegnate come cerchi, cioè l\'inviluppo cautelativo di tutte le direzioni possibili.' : 'Meteo predefinito, senza direzione del vento: le distanze sottovento sono disegnate come cerchi, cioè l\'inviluppo cautelativo di tutte le direzioni possibili.');
-    else if (r.rappr === 'aloha') out.push(`Con ${verso}: per ogni soglia è disegnata l'impronta calcolata della nube (isopleta con profilo laterale gaussiano, semilarghezza σy·√(2·ln(C/soglia)); nel campo vicino si usa la larghezza della nube densa di Britter-McQuaid).`, ALOHA_TXT(angoloConfidenza(r.meteo.vento_ms)));
+    else if (r.rappr === 'aloha') out.push(`Con ${verso}: per ogni soglia è disegnata l'impronta calcolata della nube (isopleta con profilo laterale gaussiano, semilarghezza σy·√(2·ln(C/soglia)); nel campo vicino si usa la larghezza della nube densa di Britter-McQuaid).`, ALOHA_TXT(angoloConfidenza(r.meteo.vento_ms, r.meteo.stabilita)));
     else {
       out.push(`Con ${verso}: zone disegnate sottovento con la forma della zona di azione protettiva ERG 2024, un quadrato lungo quanto la distanza e largo altrettanto, metà per lato rispetto alla direzione del vento, che copre anche le oscillazioni della direzione.`);
       if (r.rapprScelta === 'aloha' && r.soloERG) out.push('È stata scelta la rappresentazione stile ALOHA, ma per le distanze delle tabelle ERG si usa sempre il quadrato, che è la forma prescritta dall\'ERG.');
@@ -420,7 +422,7 @@ function notaVento(r) {
   } else {
     const e = (EFFETTO.find(([re]) => re.test(r.scenario || '')) || [, 'questo effetto non dipende'])[1];
     out.push(`Dipendenza dal vento: ${e} dalla direzione del vento, quindi le zone sono cerchi centrati sul punto dell'evento${dv != null ? ` anche se è indicata la direzione (${verso})` : ''}.`);
-    if (r.rapprScelta === 'aloha') out.push(`È stata scelta la rappresentazione stile ALOHA: si applica solo alle nubi disperse dal vento e per questo scenario non cambia il disegno. ${angoloConfidenza(r.meteo ? r.meteo.vento_ms : (num('vento') || 1)).testo}`);
+    if (r.rapprScelta === 'aloha') out.push(`È stata scelta la rappresentazione stile ALOHA: si applica solo alle nubi disperse dal vento e per questo scenario non cambia il disegno. ${(r.meteo ? angoloConfidenza(r.meteo.vento_ms, r.meteo.stabilita) : angoloConfidenza(num('vento') || 1, $('stab').value)).testo}`);
     else if (r.meteoReale && dv != null) out.push('Rappresentazione scelta: zona di azione protettiva ERG (predefinita); per questo scenario non cambia il disegno.');
   }
   if (r.fumi && r.fumi.righe) out.push('I fumi tossici di combustione dipendono invece dal vento: le loro distanze sono sottovento e sono riportate nella tabella dedicata, senza disegno sulla mappa.');
@@ -451,7 +453,7 @@ function formeZone(r) {
       // impronta calcolata: lato sinistro all'andata, lato destro al ritorno, poi ruotata nella direzione sottovento
       const loc = [...imp.map(([x, y]) => [x, y]), ...imp.slice().reverse().map(([x, y]) => [x, -y])];
       const rot = (a) => loc.map(([x, y]) => { const c = Math.cos(a), sn = Math.sin(a), X = x * c - y * sn, Y = x * sn + y * c; return [ux * X + uy * Y, uy * X - ux * Y]; });
-      const a = angoloConfidenza(r.meteo.vento_ms);
+      const a = angoloConfidenza(r.meteo.vento_ms, r.meteo.stabilita);
       const conf = a.cerchio ? { cerchio: d } : { linee: [rot(a.gradi * Math.PI / 180), rot(-a.gradi * Math.PI / 180)] };
       return z.push({ tipo: 'quadrato', D: d, col, key, pts: rot(0), conf });
     }
@@ -859,7 +861,7 @@ function disegna(r, g) {
   $('graf').innerHTML = s + '</svg>';
   const nZone = F.z.filter(f => ['I', 'II', 'III'].includes(f.key)).length;
   $('grafnote').textContent = (F.orient
-    ? (r.rappr === 'aloha' ? `Vento da ${Math.round(r.dirVento)}° (${nomeSettore(r.dirVento)}): aree colorate = impronta calcolata della nube per ogni soglia; tratteggio dello stesso colore = linee di confidenza sulla direzione del vento (${angoloConfidenza(r.meteo.vento_ms).cerchio ? 'cerchio: vento ≤ 10 km/h' : '±30°'}, angolo fisso NATO ATP-45, non fedele ad ALOHA). ` : /VCE/.test(r.scenario) ? `Vento da ${Math.round(r.dirVento)}° (${nomeSettore(r.dirVento)}): cerchi di sovrappressione centrati sul centro dell'esplosione, spostato sottovento a metà della distanza del LFL. ` : `Vento da ${Math.round(r.dirVento)}° (${nomeSettore(r.dirVento)}): zone che dipendono dal vento disegnate sottovento come quadrati lunghi e larghi quanto la distanza, metà per lato (forma della zona di azione protettiva ERG 2024). `)
+    ? (r.rappr === 'aloha' ? `Vento da ${Math.round(r.dirVento)}° (${nomeSettore(r.dirVento)}): aree colorate = impronta calcolata della nube per ogni soglia; tratteggio dello stesso colore = linee di confidenza sulla direzione del vento (±${String(+angoloConfidenza(r.meteo.vento_ms, r.meteo.stabilita).gradi.toFixed(1)).replace('.', ',')}°, formula di ALOHA). ` : /VCE/.test(r.scenario) ? `Vento da ${Math.round(r.dirVento)}° (${nomeSettore(r.dirVento)}): cerchi di sovrappressione centrati sul centro dell'esplosione, spostato sottovento a metà della distanza del LFL. ` : `Vento da ${Math.round(r.dirVento)}° (${nomeSettore(r.dirVento)}): zone che dipendono dal vento disegnate sottovento come quadrati lunghi e larghi quanto la distanza, metà per lato (forma della zona di azione protettiva ERG 2024). `)
     : (ventoDipendente(r) ? 'Direzione del vento non indicata: distanze sottovento rappresentate come cerchi (inviluppo cautelativo). ' : ''))
     + 'Tratteggio: isolamento iniziale ERG ' + iso + ' m. ' + (ergApp ? 'Puntinato: distanza ERG applicabile (' + r.ergCaso.etichetta + ') ' + ergApp + ' m. ' : '')
     + (r.soloERG ? 'Area colorata: distanza ERG da applicare' + (r.ergCaso && r.ergCaso.prot_km ? ` (arancio: isolamento ${r.ergCaso.dist} m; giallo: protezione sottovento ${String(r.ergCaso.prot_km).replace('.', ',')} km${F.orient ? '' : ', disegnata come cerchio'}). ` : '. ') : '')
