@@ -224,7 +224,7 @@ function bleveOnda({ tab, massa_kg, P_MPa = 1.7, riemp = 0.8, beta = 0.5 }) {
     { k: 'FRMAX', nome: 'Frammenti: gittata massima osservata', descr: 'il restante 20% arriva fino a circa 1 km (Holden e Reeves 1985)', m: 1000 }
   ];
   return {
-    righe, E_kJ: E, tnt_kg: W, massa_liq_kg: ml, massa_vap_kg: mv, V_m3: V, T_C: Tc,
+    righe, distanze: d, E_kJ: E, tnt_kg: W, massa_liq_kg: ml, massa_vap_kg: mv, V_m3: V, T_C: Tc,
     ipotesi: [
       `Energia meccanica del BLEVE con il metodo dell'espansione adiabatica irreversibile (Planas-Cuchi, Salla e Casal 2004): ΔU del contenuto = lavoro contro l'atmosfera P0·ΔV, stato finale saturo a 1 atm; proprietà termodinamiche di ${tab.fluido} da CoolProp (HEOS)`,
       `Cedimento a ${itn(P)} bar (${itn(Tc)} °C); recipiente di ${itn(V, 2)} m³ ricavato da ${massa_kg} kg con riempimento ${Math.round(riemp * 100)}% in volume a 15 °C (densità del liquido ${itn(tab.rho15, 0)} kg/m³); al cedimento ${itn(ml, 0)} kg di liquido e ${itn(mv, 1)} kg di vapore`,

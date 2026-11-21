@@ -44,6 +44,7 @@
     d.modelli = p.modelli;
     d.modello = p.modelli[0];
     d.propsGL = true;
+    if (DATA.bleveTab && DATA.bleveTab[u]) { d.modelli = ['GL', 'BT', 'ERG']; }
   }
   // UN 1791 soluzione di ipoclorito: sviluppo di cloro a contatto con acidi (V2, 20/11/2026)
   // stesse proprietà e soglie del cloro UN 1017; massa di cloro dal cloro attivo (g/L) della soluzione

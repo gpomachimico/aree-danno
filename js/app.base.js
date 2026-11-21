@@ -13,7 +13,7 @@ function mostraRicerca() {
   box.querySelectorAll('button').forEach(b => b.onclick = () => { $('onu').value = b.dataset.u; box.innerHTML = ''; $('onu').dispatchEvent(new Event('input')); });
 }
 
-const NOMI_MOD = { PF: 'Pool fire', BL: 'BLEVE / fireball', GA: 'Dispersione tossica', GL: 'Gas tossico liquefatto', CL: 'Ipoclorito: cloro o clorammine', W2: 'Reazione con acqua (Tabella 2 ERG)', JF: 'Jet fire', FF: 'Flash fire', VCE: 'Esplosione da nube (VCE)', TNT: 'Esplosione (TNT equivalente)', ERG: 'Solo distanze ERG', NOS: 'Nome tecnico necessario' };
+const NOMI_MOD = { PF: 'Pool fire', BL: 'BLEVE / fireball', GA: 'Dispersione tossica', GL: 'Gas tossico liquefatto', CL: 'Ipoclorito: cloro o clorammine', W2: 'Reazione con acqua (Tabella 2 ERG)', JF: 'Jet fire', FF: 'Flash fire', VCE: 'Esplosione da nube (VCE)', TNT: 'Esplosione (TNT equivalente)', BT: 'Scoppio del recipiente (BLEVE senza fireball)', ERG: 'Solo distanze ERG', NOS: 'Nome tecnico necessario' };
 
 $('onu').addEventListener('input', () => {
   mostraRicerca();
@@ -185,6 +185,12 @@ function buildFields() {
       <div class="row">${f('ariaW', 'Quota del gas che passa in aria (%)', 100, 'min="1" max="100"')}${f('durW', 'Durata dello sviluppo del gas (min)', 10, 'min="1" max="240"')}</div>
       <p class="small">Sostanza: ${p.nome} (${p.formula}, M = ${itn2(+p.pm.toFixed(2))} g/mol). Gas prodotti con l'acqua secondo la Tabella 2 ERG, resa stechiometrica: ${prod}.</p>
       <p class="small">Con il 100% tutto il gas va in aria: limite superiore cautelativo. HCl, HF, HBr e NH3 sono molto solubili e, se lo spandimento avviene in molta acqua (mare, fiume), gran parte resta disciolta. La Tabella 2 ERG resta il riferimento di primo intervento.</p>`;
+  } else if (m === 'BT') {
+    const op = contenitoriGL(), def = op.find(o => o[0] === 'ton') || op[0], p50 = p.ps && p.ps[50] ? p.ps[50] : 15;
+    h = `<label>Recipiente</label><select id="btc">${op.map(([v, t, ms]) => `<option value="${ms}" ${v === def[0] ? 'selected' : ''}>${t} (${ms} kg)</option>`).join('')}</select>
+      <div class="row">${f('massa', `Contenuto di ${p.nome} (kg)`, def[2])}${f('pbar', 'Pressione al cedimento (bar assoluti)', +p50.toFixed(1))}</div>
+      <div class="row">${f('riemp', 'Riempimento in volume a 15 °C (%)', 80, 'min="10" max="98"')}<div></div></div>
+      <p class="small">Recipiente di gas tossico non infiammabile coinvolto in un incendio o surriscaldato: il cedimento improvviso libera l'energia di espansione del liquido surriscaldato (onda d'urto) e proietta frammenti; non si forma la fireball. Pressione proposta: tensione di vapore a 50 °C (${String(+p50.toFixed(1)).replace('.', ',')} bar), temperatura di riferimento per il riempimento dei recipienti; può essere più alta se il recipiente è esposto al fuoco. L'intero contenuto va in aria in un istante: per la nube tossica usare lo scenario "Gas tossico liquefatto" con rilascio totale.</p>`;
   } else if (m === 'GL') {
     h = campiGL(p);
   } else if (m === 'JF' || m === 'FF' || m === 'VCE') {
@@ -204,6 +210,7 @@ function buildFields() {
   const imb = $('imb');
   if (imb) imb.addEventListener('change', () => { const v = +imb.value; if (v) { if ($('vol')) $('vol').value = v; if ($('massa')) $('massa').value = v; } });
   if (m === 'GA') bindForo();
+  if (m === 'BT') { const c = $('btc'); c.onchange = () => { $('massa').value = c.value; }; }
   if (m === 'W2') { const iw = $('imbW'); iw.onchange = () => { if (+iw.value) $('massaW').value = iw.value; }; }
   if (m === 'GL') bindGL();
   if (m === 'JF' || m === 'FF' || m === 'VCE') bindGF(p);
@@ -416,7 +423,7 @@ function angoloConfidenza(u10, stab = 'D') {
     testo: `Linee di confidenza secondo il metodo di ALOHA (Jones et al. 2013, NOAA TM NOS OR&R 43, § 4.5.3): impronta ruotata di ±α attorno alla direzione del vento, con α = arctan(2·σy / (300·U3)) = ${f1(a)}°. U3 = vento a 3 m = ${f1(U3)} m/s, ricavato dal vento a 10 m (${f1(u10)} m/s) con il profilo del vento di ALOHA (§ 4.2.3: profilo logaritmico con la correzione di stabilità di Businger, lunghezza di Obukhov della classe ${stab}, rugosità 0,03 m "Open Country"); 300·U3 = ${Math.round(x5)} m, distanza percorsa in 5 minuti; σy = ${f1(sy)} m a quella distanza (Briggs rurale, come ALOHA § 4.3.1). Metodo fedele ad ALOHA (formula dell'angolo, profilo del vento e σy secondo la documentazione tecnica ALOHA 5.4.4). ${NOTA_DEBOLE}` };
 }
 // Nota sulla rappresentazione grafica e sulla dipendenza dal vento, per ogni scenario (richiesta di Luca, 19/11/2026)
-const EFFETTO = [[/Pool fire|Jet fire/, 'l\'irraggiamento termico stazionario non dipende'], [/BLEVE/, 'l\'irraggiamento della fireball non dipende'], [/TNT/, 'la sovrappressione dell\'esplosione non dipende'], [/Distanze ERG/, 'le distanze fisse dell\'ERG per questa voce non dipendono']];
+const EFFETTO = [[/Scoppio del recipiente/, 'l\'onda d\'urto dello scoppio e la proiezione dei frammenti non dipendono'], [/Pool fire|Jet fire/, 'l\'irraggiamento termico stazionario non dipende'], [/BLEVE/, 'l\'irraggiamento della fireball non dipende'], [/TNT/, 'la sovrappressione dell\'esplosione non dipende'], [/Distanze ERG/, 'le distanze fisse dell\'ERG per questa voce non dipendono']];
 function notaVento(r) {
   const out = [], dv = r.dirVento, gradi = d => `${Math.round(d)}° (${nomeSettore(d)})`;
   const verso = dv != null ? `vento da ${gradi(dv)}, la nube va verso ${gradi((dv + 180) % 360)}` : '';
@@ -618,6 +625,19 @@ $('calc').onclick = () => {
           r.avvisi = [...(g.LC50 < g.IDLH ? [`${g.nome}: la LC50 disponibile sul ratto (${g.LC50} ppm, ${g.LC50_t}) è minore dell'IDLH NIOSH (${g.IDLH} ppm). Per non avere una Zona II più stretta della Zona I, la soglia della Zona II è posta pari alla LC50: la Zona II coincide con il limite esterno della Zona I. L'IDLH NIOSH è a sua volta un valore prudenziale, fissato in mancanza di dati rilevanti di tossicità acuta per lavoratori esposti a concentrazioni superiori a 35 ppm.`] : []), 'Molti di questi prodotti reagiscono violentemente con l\'acqua: la velocità di sviluppo del gas può essere molto maggiore di quella media assunta.', ...(p.avviso ? [p.avviso] : []), ...(r.avvisi || [])]; });
         risultati.push(...rr);
       }
+    } else if (m === 'BT') {
+      const ms = num('massa'), pb = num('pbar'), ri = num('riemp') ?? 80;
+      if (!ms || ms <= 0) throw 'Inserire il contenuto';
+      if (!pb || pb <= 1.2) throw 'Pressione al cedimento fuori campo (oltre 1,2 bar)';
+      if (ri < 10 || ri > 98) throw 'Riempimento fuori campo (10–98%)';
+      const b = M.bleveOnda({ tab: DATA.bleveTab[cur.u], massa_kg: ms, P_MPa: pb / 10, riemp: ri / 100 }), d = b.distanze;
+      const r = { scenario: 'Scoppio del recipiente (BLEVE senza fireball)', sostanza: `${sost} (${p.nome})`, distanze_m: d,
+        zone_m: { I: d.elevata_letalita, II: d.lesioni_irreversibili, III: d.lesioni_reversibili },
+        dettagli: { energia_espansione_MJ: +(b.E_kJ / 1000).toFixed(1), massa_TNT_kg: +b.tnt_kg.toFixed(1), volume_recipiente_m3: +b.V_m3.toFixed(2), temperatura_cedimento_C: +b.T_C.toFixed(1) },
+        ipotesi: [...b.ipotesi.filter(x => !/^Frammenti|^Le distanze dei frammenti/.test(x)), 'Soglie D.M. 9/5/2001 per la sovrappressione di picco; il gas tossico non brucia: nessuna fireball'],
+        avvisi: [...b.avvisi, `Lo scoppio libera in un istante l'intero contenuto (${ms} kg di ${p.nome}): le distanze tossiche sono in genere molto maggiori di quelle dell'onda d'urto. Calcolarle con lo scenario "Gas tossico liquefatto", rilascio totale, e applicare la Tabella 3 ERG.`, ...(p.avviso ? [p.avviso] : [])],
+        bl: { ...b, righe: b.righe.filter(x => /^FR/.test(x.k)), ipotesi: b.ipotesi.filter(x => /^Frammenti|^Le distanze dei frammenti/.test(x)) } };
+      risultati = [r];
     } else if (m === 'GL') {
       const ms = num('massa'); if (!ms || ms <= 0) throw 'Inserire il contenuto del recipiente';
       const sc = $('gls').value, dmm = num('dforo') || 10;
