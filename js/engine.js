@@ -101,7 +101,7 @@ function bleve({ massa_kg, dHc_kJkg = 46000, P_MPa = 1.7, sostanza = '' }) {
       `Frazione irraggiata f = 0,27·P^0,32 con P = ${P_MPa} MPa al cedimento (Roberts)`,
       'Fireball statica a diametro massimo per tutta la durata; trasmissività atmosferica = 1 (cautelativo)',
       'Soglie D.M. 9/5/2001 per irraggiamento variabile (dose termica kJ/m²); elevata letalità = raggio della fireball',
-      'Frammenti e onda d\'urto non calcolati: vedere distanze ERG/tabella BLEVE'
+      'Onda d\'urto e frammenti: riquadro dedicato (se la sostanza ha la tabella termodinamica); vedere anche la tabella BLEVE ERG'
     ]
   };
 }
@@ -192,6 +192,48 @@ function gaussiano({ volume_m3, densita_soluzione, frazione_tossico = 1, pm, Pv_
       'Gas trattato come passivo: per gas più pesanti dell\'aria il modello è indicativo nel campo vicino',
       nota_soglie
     ].filter(Boolean)
+  };
+}
+
+// ============ 2b. BLEVE – onda d'urto e frammenti (V2, 21/11/2026) ============
+// Energia: espansione adiabatica irreversibile (Planas-Cuchi, Salla, Casal, J. Loss Prev. 17, 2004), tabelle CoolProp in bleve-tab.js;
+// quota trasformata in onda d'urto β (0,4–0,5 per rottura duttile secondo la letteratura; si usa 0,5); TNT equivalente con E_TNT 4680 kJ/kg
+// e curve Kingery-Bulmash per esplosione emisferica al suolo. Frammenti: statistiche di Holden e Reeves (IChemE Symp. Ser. 93, 1985).
+function bleveOnda({ tab, massa_kg, P_MPa = 1.7, riemp = 0.8, beta = 0.5 }) {
+  const T = tab.tab, Pb = P_MPa * 10, avvisi = [];
+  let P = Math.min(Math.max(Pb, T[0][0]), T[T.length - 1][0]);
+  if (P !== Pb) avvisi.push(`Pressione al cedimento fuori dalla tabella della sostanza (${T[0][0]}–${T[T.length - 1][0]} bar): usato ${P} bar.`);
+  let i = T.findIndex(r => r[0] >= P); if (i <= 0) i = 1;
+  const a = T[i - 1], b = T[i], w = (P - a[0]) / (b[0] - a[0]), L = k => a[k] + w * (b[k] - a[k]);
+  const Tc = L(1), el = L(2), ev = L(3), vl = L(4), vv = L(5);
+  const V = massa_kg / (riemp * tab.rho15);                       // volume del recipiente, m³
+  let mv = (V - massa_kg * vl) / (vv - vl);
+  if (mv < 0) { mv = 0; avvisi.push('Alla temperatura di cedimento il liquido riempirebbe tutto il recipiente (rottura idraulica): energia calcolata sul solo liquido.'); }
+  const ml = massa_kg - mv, E = ml * el + mv * ev, W = beta * E / 4680;
+  const k = Math.cbrt(W), p = R => kingeryBulmash_bar(R / k), s = SOGLIE.sovrappressione_bar;
+  const d = {};
+  for (const key of ['elevata_letalita', 'elevata_letalita_spazi_aperti', 'inizio_letalita', 'lesioni_irreversibili', 'lesioni_reversibili'])
+    d[key] = r1(distanzaSoglia(p, s[key], 0.2 * k, 198.5 * k));
+  const itn = (v, n = 1) => v.toFixed(n).replace('.', ',');
+  const righe = [
+    { k: 'P03', nome: 'Sovrappressione 0,3 bar', descr: 'elevata letalità (0,6 bar in spazi aperti: ' + (d.elevata_letalita_spazi_aperti ?? 'non raggiunta') + (d.elevata_letalita_spazi_aperti ? ' m' : '') + ')', m: d.elevata_letalita },
+    { k: 'P014', nome: 'Sovrappressione 0,14 bar', descr: 'inizio letalità', m: d.inizio_letalita },
+    { k: 'P007', nome: 'Sovrappressione 0,07 bar', descr: 'lesioni irreversibili', m: d.lesioni_irreversibili },
+    { k: 'P003', nome: 'Sovrappressione 0,03 bar', descr: 'lesioni reversibili', m: d.lesioni_reversibili },
+    { k: 'FR80', nome: 'Frammenti: 80%', descr: 'circa l\'80% dei frammenti delle rotture di recipienti di GPL cade entro 200 m (Holden e Reeves 1985)', m: 200 },
+    { k: 'FRMAX', nome: 'Frammenti: gittata massima osservata', descr: 'il restante 20% arriva fino a circa 1 km (Holden e Reeves 1985)', m: 1000 }
+  ];
+  return {
+    righe, E_kJ: E, tnt_kg: W, massa_liq_kg: ml, massa_vap_kg: mv, V_m3: V, T_C: Tc,
+    ipotesi: [
+      `Energia meccanica del BLEVE con il metodo dell'espansione adiabatica irreversibile (Planas-Cuchi, Salla e Casal 2004): ΔU del contenuto = lavoro contro l'atmosfera P0·ΔV, stato finale saturo a 1 atm; proprietà termodinamiche di ${tab.fluido} da CoolProp (HEOS)`,
+      `Cedimento a ${itn(P)} bar (${itn(Tc)} °C); recipiente di ${itn(V, 2)} m³ ricavato da ${massa_kg} kg con riempimento ${Math.round(riemp * 100)}% in volume a 15 °C (densità del liquido ${itn(tab.rho15, 0)} kg/m³); al cedimento ${itn(ml, 0)} kg di liquido e ${itn(mv, 1)} kg di vapore`,
+      `Energia di espansione ${itn(E / 1000, 1)} MJ (${itn(el, 1)} kJ/kg dal liquido, ${itn(ev, 1)} kJ/kg dal vapore); quota trasformata in onda d'urto β = ${String(beta).replace('.', ',')} (estremo superiore dell'intervallo 0,4–0,5 indicato in letteratura per la rottura duttile, scelta di Claude)`,
+      `TNT equivalente ${itn(W, 1)} kg (E_TNT 4680 kJ/kg); sovrappressione di picco con le curve Kingery-Bulmash per esplosione emisferica al suolo (Swisdak 1994); distanze dal centro del recipiente. Nel campo vicino il TNT equivalente tende a sovrastimare l'onda di un'esplosione di recipiente`,
+      'Frammenti (Holden e Reeves 1985, oltre 100 rotture di recipienti di gas liquefatti, soprattutto GPL in incendio): circa l\'80% dei recipienti cilindrici in incendio proietta frammenti, di solito da 1 a 4; circa l\'80% dei frammenti cade entro 200 m e il resto fino a circa 1 km; i fondi ("tub") arrivano più lontano; i recipienti sotto 90 m³ proiettano più lontano di quelli grandi. Circa il 60% dei frammenti dei cilindri cade nei settori di ±30° attorno all\'asse del recipiente: evitare di sostare sull\'asse delle cisterne',
+      'Le distanze dei frammenti sono statistiche di incidenti reali, non un calcolo sul recipiente: valgono come ordine di grandezza; la gittata può superare 1 km'
+    ],
+    avvisi
   };
 }
 
@@ -682,6 +724,6 @@ function gaussianoMeteo(param, meteo = METEO_PREDEFINITO) {
   });
 }
 
-const api = { SOGLIE, METEO_PREDEFINITO, poolFire, bleve, gaussiano, gaussianoMeteo, controllaMeteo, tnt, kingeryBulmash_bar, kinneyGraham_bar, fattoreVistaCilindro, evaporazioneEPA, gasLiquefatto, gasLiquefattoMeteo, jetFire, flashFire, flashFireMeteo, vce, vceMeteo, fumiIncendio, innalzamento, qdDoD, bmPennacchio, bmNube, portataForo, psatBar, pozzaDaForo };
+const api = { SOGLIE, METEO_PREDEFINITO, poolFire, bleve, gaussiano, gaussianoMeteo, controllaMeteo, tnt, kingeryBulmash_bar, kinneyGraham_bar, fattoreVistaCilindro, evaporazioneEPA, gasLiquefatto, gasLiquefattoMeteo, jetFire, flashFire, flashFireMeteo, vce, vceMeteo, fumiIncendio, innalzamento, qdDoD, bmPennacchio, bmNube, portataForo, psatBar, pozzaDaForo, bleveOnda };
 if (typeof module !== 'undefined') module.exports = api;
 if (typeof window !== 'undefined') window.MotoreAree = api;

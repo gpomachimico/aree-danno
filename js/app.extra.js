@@ -1,6 +1,6 @@
 /* Estensioni dell'app installabile: mappa, GPS, impostazioni, report stampabile, offline */
 'use strict';
-const VERSIONE = '1.6-beta';
+const VERSIONE = '1.7-beta';
 
 // ---------- impostazioni (solo su questo dispositivo) ----------
 const FIRMATARIO_DEFAULT = { nome: 'Dott. Gianluca POMA', qualifica: 'Consulente Chimico di Porto' };
@@ -82,6 +82,7 @@ function cerchiDaRisultato(r, g) {
   }
   for (const f of F.z) f.nome = f.key === 'PROT' ? `Protezione sottovento (${r.ergCaso.per}${F.orient ? '' : ', disegnata come cerchio'})` : f.key === 'ERG' ? 'ERG: ' + r.ergCaso.etichetta : nomi[f.key];
   const zone = F.z.map(f => ({ ...f, dist: f.tipo === 'cerchio' ? f.r : f.D }));
+  if (r.bl) for (const x of r.bl.righe) if (BL_DISEGNO[x.k] && x.m) zone.push({ tipo: 'cerchio', r: x.m, cx: 0, cy: 0, dist: x.m, col: BL_DISEGNO[x.k][0], nome: 'BLEVE: ' + x.nome, linea: true });
   if (r.qd) for (const x of r.qd.righe) if (x.k === 'IBD' || x.k === 'EWD') zone.push({ tipo: 'cerchio', r: x.m, cx: 0, cy: 0, dist: x.m, col: '#7d3c98', nome: 'DoD: ' + x.nome, linea: true });
   const iso = isoNumero(g);
   return { zone, iso, orient: F.orient, ux: F.ux, uy: F.uy };
@@ -198,6 +199,7 @@ function testoReport() {
   { const d = defScenario(r); if (d) t += `\nDEFINIZIONE DELLO SCENARIO – ${d[1]}\n${d[2]}\n`; }
   t += fumiTesto(r.fumi);
   t += qdTesto(r.qd);
+  t += blTesto(r.bl);
   t += `\nRAPPRESENTAZIONE GRAFICA E VENTO\n${notaVento(r).map(x => '- ' + x).join('\n')}\n`;
   t += `\nIPOTESI\n${r.ipotesi.map(x => '- ' + x).join('\n')}\n`;
   if (r.meteo) t += `- Meteo ${r.meteo.origine}: ${r.meteo.stabilita}, ${r.meteo.vento_ms} m/s, ${r.meteo.temperatura_C} °C\n`;
@@ -239,6 +241,7 @@ $('print').onclick = () => {
   if (r.ergCaso) h += `<h2>Distanza ERG da applicare</h2><p>${r.ergCaso.dist} m${r.ergCaso.dir ? ' ' + esc(r.ergCaso.dir) : ''} – ${esc(r.ergCaso.etichetta)}. ${esc(r.ergCaso.motivo)}</p>`;
   h += `<div class="schema"><h2>Schema delle zone</h2>${$('graf').innerHTML}<div class="nota">${esc($('grafnote').textContent)} Barra: scala grafica.</div></div>`;
   h += `<h2>Rappresentazione grafica e vento</h2><ul>${notaVento(r).map(x => `<li>${esc(x)}</li>`).join('')}</ul>`;
+  if (r.bl) h += `<h2>BLEVE – onda d'urto e frammenti</h2>${blHTML(r.bl, esc).replace(/class="small"/g, 'class="nota"').replace(/class="ip"/g, '').replace(/class="warn"/g, 'class="nota"')}`;
   if (r.qd) h += `<h2>Distanze in funzione della NEM (DoD)</h2>${qdHTML(r.qd, esc).replace(/class="small"/g, 'class="nota"').replace(/class="ip"/g, '').replace(/class="warn"/g, 'class="nota"')}`;
   if (r.fumi) h += `<h2>Fumi tossici di combustione</h2>${fumiHTML(r.fumi, esc).replace(/class="small"/g, 'class="nota"').replace(/class="ip"/g, '')}`;
   h += `<h2>Ipotesi di calcolo</h2><ul>${r.ipotesi.map(x => `<li>${esc(x)}</li>`).join('')}${r.meteo ? `<li>Meteo ${r.meteo.origine}: ${r.meteo.stabilita}, ${r.meteo.vento_ms} m/s, ${r.meteo.temperatura_C} °C</li>` : ''}</ul>`;

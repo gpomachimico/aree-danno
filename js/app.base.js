@@ -155,6 +155,7 @@ function buildFields() {
     const rho = p.rho_liq || 0.5, mk = V => Math.round(V * rho * 0.8 / 100) * 100;
     h = `<label>Contenitore</label><select id="imb"><option value="${mk(1000)}">Bombola/serbatoio 1000 L (~${mk(1000)} kg)</option><option value="${mk(22000)}" selected>Serbatoio 22 000 L (~${mk(22000)} kg)</option><option value="${mk(42000)}">Tank 42 000 L (~${mk(42000)} kg)</option><option value="0">Altro (inserisci massa)</option></select>
       <div class="row">${f('massa', `Massa di ${p.nome.split(' (')[0]} (kg)`, mk(22000))}${f('pmpa', 'Pressione al cedimento (MPa)', 1.7)}</div>
+      <div class="row">${f('riemp', 'Riempimento in volume a 15 °C (%)', 80, 'min="10" max="98"')}<div></div></div>
       <p class="small">Sostanza di calcolo: ${p.nome}. Masse proposte: volume × densità del liquido ${String(rho).replace('.', ',')} kg/L × riempimento 80%.${p.fonte ? ' Dati: ' + p.fonte + '.' : ''}</p>`;
   } else if (m === 'GA' && typeof p.pv === 'number') {
     h = `<label>Imballaggio</label>${opzioniImbLiquidi().html}
@@ -266,6 +267,17 @@ function qdTesto(q) {
   if (!q) return '';
   return `\nDISTANZE IN FUNZIONE DELLA NEM (DoD) – NEM ${q.nem_kg} kg\n${q.righe.map(r => `- ${r.nome}: ${r.m} m (${r.descr})`).join('\n')}\n${q.ipotesi.map(x => '  · ' + x).join('\n')}\n${q.avvisi.map(x => '  ! ' + x).join('\n')}\n`;
 }
+
+// ---------- BLEVE: onda d'urto e frammenti ----------
+function blHTML(b, esc = x => x) {
+  return `${b.tnt_kg !== undefined ? `<p class="small">Energia di espansione ${String((b.E_kJ / 1000).toFixed(1)).replace('.', ',')} MJ · TNT equivalente ${String(b.tnt_kg.toFixed(1)).replace('.', ',')} kg.</p>` : ''}<table>${b.righe.map(r => `<tr><td>${esc(r.nome)}<br><span class="small">${esc(r.descr)}</span></td><td class="n">${r.m == null ? 'non raggiunta' : r.m + ' m'}</td></tr>`).join('')}</table>` +
+    `<ul class="ip">${b.ipotesi.map(x => `<li>${esc(x)}</li>`).join('')}</ul>${b.avvisi.map(x => `<div class="warn">${esc(x)}</div>`).join('')}`;
+}
+function blTesto(b) {
+  if (!b) return '';
+  return `\nBLEVE – ONDA D'URTO E FRAMMENTI\n${b.tnt_kg !== undefined ? `Energia di espansione ${(b.E_kJ / 1000).toFixed(1).replace('.', ',')} MJ, TNT equivalente ${b.tnt_kg.toFixed(1).replace('.', ',')} kg\n` : ''}${b.righe.map(r => `- ${r.nome}: ${r.m == null ? 'non raggiunta' : r.m + ' m'} (${r.descr})`).join('\n')}\n${b.ipotesi.map(x => '  · ' + x).join('\n')}\n${b.avvisi.map(x => '  ! ' + x).join('\n')}\n`;
+}
+const BL_DISEGNO = { P014: ['#8e5a2b', '6 3'], P003: ['#8e5a2b', '2 3'], FR80: ['#444', '8 3'], FRMAX: ['#444', '1 3'] };
 
 // ---------- fumi tossici di combustione ----------
 function campiFumi(p) {
@@ -413,6 +425,7 @@ function notaVento(r) {
   }
   if (r.fumi && r.fumi.righe) out.push('I fumi tossici di combustione dipendono invece dal vento: le loro distanze sono sottovento e sono riportate nella tabella dedicata, senza disegno sulla mappa.');
   if (r.qd) out.push('Le distanze DoD per gli esplosivi non dipendono dal vento e sono disegnate come cerchi.');
+  if (r.bl) out.push('Onda d\'urto e frammenti del BLEVE non dipendono dal vento e sono disegnati come cerchi; i frammenti dei recipienti cilindrici cadono di preferenza lungo l\'asse del recipiente.');
   return out;
 }
 const ZONA_SOGLIA = { I: ['LC50', 'elevata_letalita'], II: ['IDLH', 'inizio_letalita'], III: ['LOC'] };
@@ -481,6 +494,11 @@ $('calc').onclick = () => {
       const ms = num('massa'); if (!ms || ms <= 0) throw 'Inserire la massa';
       risultati = [M.bleve({ massa_kg: ms, P_MPa: num('pmpa') || 1.7, dHc_kJkg: p.dHc, sostanza: sost + (p.nome ? ' (' + p.nome + ')' : '') })];
       risultati[0].ipotesi.push(`Calore di combustione ${p.dHc} kJ/kg` + (p.fonte ? ': ' + p.fonte : ''));
+      { const tb = DATA.bleveTab && DATA.bleveTab[cur.u], ri = num('riemp') ?? 80;
+        if (ri < 10 || ri > 98) throw 'Riempimento fuori campo (10–98%)';
+        risultati[0].bl = tb ? M.bleveOnda({ tab: tb, massa_kg: ms, P_MPa: num('pmpa') || 1.7, riemp: ri / 100 })
+          : { righe: [{ k: 'FR80', nome: 'Frammenti: 80%', descr: 'circa l\'80% dei frammenti delle rotture di recipienti di GPL cade entro 200 m (Holden e Reeves 1985)', m: 200 }, { k: 'FRMAX', nome: 'Frammenti: gittata massima osservata', descr: 'il restante 20% arriva fino a circa 1 km (Holden e Reeves 1985)', m: 1000 }],
+              ipotesi: ['Frammenti: statistiche di Holden e Reeves (1985) sulle rotture di recipienti di gas liquefatti in incendio; valgono come ordine di grandezza'], avvisi: ['Onda d\'urto non calcolata: per questa sostanza manca la tabella termodinamica (CoolProp non la contiene).'] }; }
     } else if (m === 'GA' && typeof p.pv === 'number') {
       const vol = num('vol'); if (!vol || vol <= 0) throw 'Inserire il volume';
       const pvU = num('pv'), pv = pvU ?? p.pv, Trif = p.pv_T ?? 20;
@@ -699,6 +717,8 @@ function mostra() {
   disegna(r, g);
   $('fumicard').classList.toggle('hide', !r.fumi);
   $('qdcard').classList.toggle('hide', !r.qd);
+  $('blcard').classList.toggle('hide', !r.bl);
+  $('blbox').innerHTML = r.bl ? blHTML(r.bl) : '';
   $('qdbox').innerHTML = r.qd ? qdHTML(r.qd) : '';
   $('fumibox').innerHTML = r.fumi ? fumiHTML(r.fumi) : '';
   // tabella
@@ -774,9 +794,10 @@ function disegna(r, g) {
   if (r.soloERG && r.ergCaso && r.ergCaso.dist !== iso) F.z.push({ tipo: 'cerchio', r: r.ergCaso.dist, cx: 0, cy: 0, col: 'var(--z2)', key: 'ERG' });
   const ergApp = !r.soloERG && r.ergCaso ? r.ergCaso.dist : 0;
   const qdC = r.qd ? r.qd.righe.filter(x => x.k === 'IBD' || x.k === 'EWD') : [];
+  const blC = r.bl ? r.bl.righe.filter(x => BL_DISEGNO[x.k] && x.m) : [];
   // riquadro che contiene tutte le forme: lo schema si centra sulle zone, non sulla sorgente
   const bb = [[0, 0]], cerchio = (cx, cy, rr) => bb.push([cx - rr, cy - rr], [cx + rr, cy + rr]);
-  cerchio(0, 0, Math.max(iso, ergApp, ...qdC.map(x => x.m)));
+  cerchio(0, 0, Math.max(iso, ergApp, ...qdC.map(x => x.m), ...blC.map(x => x.m)));
   for (const f of F.z) { f.tipo === 'cerchio' ? cerchio(f.cx, f.cy, f.r) : bb.push(...f.pts); if (f.conf) f.conf.cerchio ? cerchio(0, 0, f.conf.cerchio) : f.conf.linee.forEach(l => bb.push(...l)); }
   const x0 = Math.min(...bb.map(q => q[0])), x1 = Math.max(...bb.map(q => q[0])), y0 = Math.min(...bb.map(q => q[1])), y1 = Math.max(...bb.map(q => q[1]));
   const sc = (W - 40) / Math.max(x1 - x0, y1 - y0, 1), mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
@@ -792,6 +813,7 @@ function disegna(r, g) {
   s += `<circle cx="${S0}" cy="${T0}" r="${iso * sc}" fill="none" stroke="var(--erg)" stroke-width="1.6" stroke-dasharray="5 4"/>`;
   if (ergApp) s += `<circle cx="${S0}" cy="${T0}" r="${ergApp * sc}" fill="none" stroke="var(--erg)" stroke-width="1.2" stroke-dasharray="2 4"/>`;
   for (const x of qdC) s += `<circle cx="${S0}" cy="${T0}" r="${x.m * sc}" fill="none" stroke="#7d3c98" stroke-width="${x.k === 'IBD' ? 1.8 : 1.2}" stroke-dasharray="${x.k === 'IBD' ? '8 3' : '1 3'}"/>`;
+  for (const x of blC) s += `<circle cx="${S0}" cy="${T0}" r="${x.m * sc}" fill="none" stroke="${BL_DISEGNO[x.k][0]}" stroke-width="1.4" stroke-dasharray="${BL_DISEGNO[x.k][1]}"/>`;
   s += `<circle cx="${S0}" cy="${T0}" r="3" fill="var(--ink)"/>`;
   // scala
   const nice = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000].find(v => v * sc > 50) || 10000;
@@ -810,6 +832,7 @@ function disegna(r, g) {
     + 'Tratteggio: isolamento iniziale ERG ' + iso + ' m. ' + (ergApp ? 'Puntinato: distanza ERG applicabile (' + r.ergCaso.etichetta + ') ' + ergApp + ' m. ' : '')
     + (r.soloERG ? 'Area colorata: distanza ERG da applicare' + (r.ergCaso && r.ergCaso.prot_km ? ` (arancio: isolamento ${r.ergCaso.dist} m; giallo: protezione sottovento ${String(r.ergCaso.prot_km).replace('.', ',')} km${F.orient ? '' : ', disegnata come cerchio'}). ` : '. ') : '')
     + (nZone < 3 && !r.soloERG ? 'Le zone non raggiunte non sono disegnate.' : '')
+    + (blC.length ? ' BLEVE: ' + blC.map(x => `${x.nome.toLowerCase()} ${x.m} m`).join('; ') + ' (marrone: sovrappressione, tratteggio = 0,14 bar, puntinato = 0,03 bar; grigio: frammenti, tratteggio = 80%, puntinato = gittata massima osservata).' : '')
     + (qdC.length ? ' Viola: distanze DoD (' + qdC.map(x => (x.k === 'IBD' ? 'IBD tratteggio lungo ' : 'allontanamento in emergenza puntinato ') + x.m + ' m').join('; ') + ').' : '');
 }
 
