@@ -212,7 +212,8 @@ function buildFields() {
 // ---------- liquidi: spandimento istantaneo o perdita continua da foro (V2, 20/11/2026) ----------
 const BATTENTE = { 200: 0.8, 1000: 1.0, 24000: 2.0 };
 function campiForo() {
-  return `<label for="rilL">Tipo di rilascio</label><select id="rilL"><option value="ist">Spandimento istantaneo di tutto il volume</option><option value="foro">Perdita continua da foro</option></select>
+  return `<label for="spesL">Spessore minimo della pozza non confinata</label><select id="spesL"><option value="0.01" selected>1 cm – EPA, Offsite Consequence Analysis Guidance (1999) – predefinito</option><option value="0.005">0,5 cm – ALOHA 5.4.4 Technical Documentation, § 3.4.4.2 (Briscoe e Shaw 1980): pozza più estesa, distanze maggiori</option></select>
+    <label for="rilL">Tipo di rilascio</label><select id="rilL"><option value="ist">Spandimento istantaneo di tutto il volume</option><option value="foro">Perdita continua da foro</option></select>
     <div id="foroBox" class="hide"><div class="row">${f('dforoL', 'Diametro del foro (mm)', 25, 'min="1" max="300"')}${f('battL', 'Battente di liquido sopra il foro (m)', 1)}</div>
     <p class="small">Perdita da recipiente a pressione atmosferica (fusto, IBC, cisterna). La pozza si allarga mentre il liquido esce; l'area è limitata dal bacino, se indicato. Battenti proposti: fusto 0,8 m, IBC 1 m, cisterna 2 m.</p></div>`;
 }
@@ -548,7 +549,7 @@ $('calc').onclick = () => {
       const pvU = num('pv'), pv = pvU ?? p.pv, Trif = p.pv_T ?? 20;
       const meteo = meteoScelto();
       const foro = leggiForo();
-      risultati = M.gaussianoMeteo({ foro, volume_m3: vol / 1000, densita_soluzione: p.dens, frazione_tossico: p.frazione || 1, pm: p.pm, Pv_kPa: pv, Pv_rif_T_C: pvU ? undefined : Trif, area_m2: num('area'),
+      risultati = M.gaussianoMeteo({ foro, spessore_m: +$('spesL').value, volume_m3: vol / 1000, densita_soluzione: p.dens, frazione_tossico: p.frazione || 1, pm: p.pm, Pv_kPa: pv, Pv_rif_T_C: pvU ? undefined : Trif, area_m2: num('area'),
         soglie_ppm: { LC50: p.LC50, IDLH: p.IDLH, LOC: p.LOC }, sostanza: `${sost} (${p.nome})`,
         nota_soglie: `Soglie: LC50 = ${p.LC50} ppm (ratto, ${p.LC50_t}, senza correzione temporale: cautelativo se la durata supera 30 min); IDLH ${p.IDLH} ppm (NIOSH); LOC = IDLH/10 = ${p.LOC} ppm. Tensione di vapore ${pv} kPa ${pvU ? '(inserita dall\'utente)' : '(banca dati, ' + Trif + ' °C)'}${p.frazione ? '; frazione di sostanza tossica ' + p.frazione : ''}. Fonti: ${p.fonte}` }, meteo);
       if (p.avviso) risultati.forEach(r => r.avvisi = [p.avviso, ...(r.avvisi || [])]);
@@ -558,7 +559,7 @@ $('calc').onclick = () => {
       const pv = pvU ?? interpLog(p.pv, c), dens = interpLin(p.dens, c);
       const meteo = meteoScelto();
       const foro = leggiForo();
-      risultati = M.gaussianoMeteo({ foro, volume_m3: vol / 1000, densita_soluzione: dens, frazione_tossico: c / 100, pm: p.pm, Pv_kPa: +pv.toFixed(2), Pv_rif_T_C: pvU ? undefined : 20, area_m2: num('area'),
+      risultati = M.gaussianoMeteo({ foro, spessore_m: +$('spesL').value, volume_m3: vol / 1000, densita_soluzione: dens, frazione_tossico: c / 100, pm: p.pm, Pv_kPa: +pv.toFixed(2), Pv_rif_T_C: pvU ? undefined : 20, area_m2: num('area'),
         soglie_ppm: { LC50: p.LC50, IDLH: p.IDLH, LOC: p.LOC }, sostanza: `${sost} ${c}%`,
         nota_soglie: `Soglie: LC50 30 min = ${p.LC50} ppm (LC50 ratto 1 h senza correzione temporale, scelta cautelativa); IDLH ${p.IDLH} ppm (NIOSH); LOC = IDLH/10 = ${p.LOC} ppm. Concentrazione ${c}%, densità ${dens.toFixed(3)}, tensione di vapore ${pv.toFixed(2)} kPa ${pvU ? '(inserita dall\'utente)' : '(International Critical Tables, 20 °C, tensione totale: cautelativo)'}` }, meteo);
     } else if (m === 'CL') {

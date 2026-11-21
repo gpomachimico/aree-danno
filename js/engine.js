@@ -147,7 +147,7 @@ function pozzaDaForo({ volume_m3, rho, frazione = 1, d_mm, h_m, area_bacino = nu
   const limite = Amax >= Alim * 0.999 ? 'bacino' : Amax >= A_eq * 0.97 ? 'equilibrio' : 'fine';
   const ipotesi = [
     `Perdita continua da foro di ${d_mm} mm in recipiente a pressione atmosferica, battente di liquido ${itn(h_m, 1)} m: portata di Bernoulli ${itn(mL, 3)} kg/s (Cd 0,61, battente costante: portata iniziale, cautelativa); durata della perdita ${itn(tr / 60, 0)} min`,
-    `Pozza che si allarga con spessore ${spessore_m * 100} cm (EPA OCA 1999)${area_bacino ? `, fino al bacino di ${area_bacino} m²` : ', senza bacino'}; area massima ${itn(Amax, 1)} m² raggiunta dopo ${itn(tA / 60, 0)} min (${{ bacino: 'limitata dal bacino', equilibrio: 'equilibrio tra afflusso ed evaporazione', fine: 'fine della perdita' }[limite]})`,
+    `Pozza che si allarga fino allo spessore di ${String(spessore_m * 100).replace('.', ',')} cm (${spessore_m < 0.008 ? 'ALOHA 5.4.4, § 3.4.4.2, Briscoe e Shaw 1980' : 'EPA OCA 1999'})${area_bacino ? `, fino al bacino di ${area_bacino} m²` : ', senza bacino'}; area massima ${itn(Amax, 1)} m² raggiunta dopo ${itn(tA / 60, 0)} min (${{ bacino: 'limitata dal bacino', equilibrio: 'equilibrio tra afflusso ed evaporazione', fine: 'fine della perdita' }[limite]})`,
     'Emissione costante pari all\'evaporazione massima della pozza (cautelativo: prima di raggiungerla l\'emissione è minore)'
   ];
   return { mL, t_rilascio_s: tr, A_max: Amax, t_Amax_s: tA, E_max: k * Amax, A_eq, limite, ipotesi };
@@ -185,7 +185,7 @@ function gaussiano({ volume_m3, densita_soluzione, frazione_tossico = 1, pm, Pv_
     dettagli: { area_pozza_m2: +A.toFixed(1), ...(pz ? { portata_liquido_kg_s: +pz.mL.toFixed(3), tempo_area_max_min: +(pz.t_Amax_s / 60).toFixed(0) } : {}), portata_evaporazione_kg_s: +Q.toFixed(4), portata_kg_min: +(Q * 60).toFixed(2), durata_rilascio_min: +durata_min.toFixed(0), sorgente_virtuale_m: +xv.toFixed(1), conc_100m_ppm: r1(C_mgm3(100) / ppm2mg(1)) },
     pozza: pz,
     ipotesi: [
-      ...(pz ? pz.ipotesi : [area_m2 ? `Pozza confinata ${A} m²` : `Spandimento non confinato, spessore ${spessore_m * 100} cm (EPA OCA 1999)`]),
+      ...(pz ? pz.ipotesi : [area_m2 ? `Pozza confinata ${A} m²` : `Spandimento non confinato, spessore ${String(spessore_m * 100).replace('.', ',')} cm (${spessore_m < 0.008 ? 'ALOHA 5.4.4, § 3.4.4.2: la pozza smette di allargarsi a 5 mm, Briscoe e Shaw 1980' : 'EPA OCA 1999'})`]),
       `Evaporazione EPA OCA 1999 eq. 3-3, tensione di vapore ${Pv_kPa} kPa a ${(T_K - 273.15).toFixed(0)} °C`,
       `Meteo: classe di stabilità ${stabilita}, vento ${u_ms} m/s; coefficienti di dispersione di Briggs, terreno aperto (rurale)`,
       'Rilascio continuo a livello del suolo, concentrazione sull\'asse del pennacchio a livello del suolo, stato stazionario',
