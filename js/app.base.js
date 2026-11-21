@@ -517,7 +517,17 @@ function dirVentoScelta() {
   return d % 360;
 }
 const nomeSettore = d => SETTORI16[Math.round(d / 22.5) % 16];
-function meteoScelto() { return meteoUser ? [{ stabilita: $('stab').value, u_ms: num('vento') || 1, T_C: num('temp') ?? 20 }] : M.METEO_PREDEFINITO; }
+function meteoScelto() {
+  const base = meteoUser ? [{ stabilita: $('stab').value, u_ms: num('vento') || 1, T_C: num('temp') ?? 20 }] : M.METEO_PREDEFINITO;
+  const aq = $('acqua') ? $('acqua').value : '';
+  return aq ? base.map(m => ({ ...m, stabilita: aq })) : base;
+}
+// nota sulla scelta terraferma / acqua, sempre nel report degli scenari con meteo (richiesta di Luca, 21/11/2026)
+function notaAcqua(r) {
+  const aq = $('acqua').value, orig = meteoUser ? `della classe ${$('stab').value} del meteo reale` : 'delle classi D e F del meteo predefinito';
+  if (!aq) return 'Luogo del rilascio: sulla terraferma; stabilità atmosferica del meteo scelto. Per un rilascio sull\'acqua l\'app propone la classe F (predefinita) o E, perché sopra l\'acqua ALOHA assume sempre condizioni stabili (Tech. Doc. 5.4.4, § 4.2.1).';
+  return `Luogo del rilascio: sull'acqua (mare, specchio portuale). ALOHA assume sopra l'acqua condizioni stabili indipendentemente da insolazione e vento (Tech. Doc. 5.4.4, § 4.2.1), senza indicare la classe; l'app usa la classe ${aq} al posto ${orig}${aq === 'F' ? ' (classe F: scelta predefinita, cautelativa, come lo scenario peggiore EPA; scelta di Luca del 21/11/2026)' : ' (classe E: scelta dell\'utente fra le due proposte, adatta a vento sostenuto, cielo coperto o aria più fredda dell\'acqua; predefinita sarebbe F, scelta di Luca del 21/11/2026)'}. In classe F le distanze tossiche sono circa doppie rispetto alla classe E.`;
+}
 
 $('mPre').onclick = () => { meteoUser = false; $('mPre').classList.add('on'); $('mUser').classList.remove('on'); $('meteoUser').classList.add('hide'); };
 $('mUser').onclick = () => { meteoUser = true; $('mUser').classList.add('on'); $('mPre').classList.remove('on'); $('meteoUser').classList.remove('hide'); };
@@ -686,6 +696,7 @@ $('calc').onclick = () => {
       const dv = mv ? dirVentoScelta() : null, rs = mv ? $('rappr').value : 'erg';
       risultati.forEach(r => { r.meteoReale = mv; r.rapprScelta = rs;
         if (dv !== null) { r.dirVento = dv; r.rappr = rs === 'aloha' && r.impronta && !r.soloERG && !/VCE/.test(r.scenario) ? 'aloha' : 'erg'; } }); if (mv) applicaMeteoServizio(risultati);
+      if (!$('meteobox').classList.contains('hide')) risultati.forEach(r => { if (r.meteo) { r.ipotesi.push(notaAcqua(r)); if ($('acqua').value) r.meteo.origine = (meteoUser ? r.meteo.origine : 'predefinito (venti 5 e 2 m/s)') + `, classe ${$('acqua').value} per rilascio sull'acqua`; } });
       risultati.forEach(r => { if (r.meteo && r.meteo.vento_ms < 1) r.avvisi = [...(r.avvisi || []), `Vento di ${String(r.meteo.vento_ms).replace('.', ',')} m/s, sotto 1 m/s a 10 m: i modelli di dispersione non sono affidabili in condizioni di calma (ALOHA, Tech. Doc. 5.4.4 § 1.2, si applica solo con vento oltre 1 m/s). Considerare la nube ferma attorno alla sorgente e le distanze come indicative.`]; }); }
     if (cur.classe.startsWith('1.')) {
       const { nem } = leggiNEM(), na = num('nemart');
