@@ -640,12 +640,13 @@ function fumiIncendio({ portata_kgs, Qc_kW, pm, soglie_ppm, meteo = METEO_PREDEF
     const rho = P_ATM * 0.028964 / (R_GAS * Ta), F = G0 * Qc_kW * 1000 / (Math.PI * 1005 * rho * Ta);
     const kgppm = P_ATM * M / (R_GAS * Ta) * 1e-6;
     const C = (x, H) => { const [sy, sz] = sig(x); return portata_kgs / (Math.PI * sy * sz * u) * Math.exp(-H * H / (2 * sz * sz)) / kgppm; };
-    const con = {}, senza = {};
+    const con = {}, senza = {}, imp = {};
     for (const [k, ppm] of Object.entries(soglie_ppm)) {
       con[k] = r1(distanzaMaxSoglia(x => C(x, innalzamento(F, u, m.stabilita, Ta, x)), ppm, 1, 10000));
       senza[k] = r1(distanzaSoglia(x => C(x, 0), ppm, 1, 10000));
+      if (Number.isFinite(senza[k]) && senza[k] > 0) imp[k] = improntaCurva(x => C(x, 0), x => sig(x)[0], ppm, senza[k]);
     }
-    return { meteo: `${m.stabilita}${u}`, con, senza, dh_finale_m: Math.round(innalzamento(F, u, m.stabilita, Ta, 1e9)), F_m4s3: +F.toFixed(1) };
+    return { meteo: `${m.stabilita}${u}`, con, senza, impSenza: imp, dh_finale_m: Math.round(innalzamento(F, u, m.stabilita, Ta, 1e9)), F_m4s3: +F.toFixed(1) };
   });
 }
 

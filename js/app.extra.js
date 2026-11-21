@@ -1,6 +1,6 @@
 /* Estensioni dell'app installabile: mappa, GPS, impostazioni, report stampabile, offline */
 'use strict';
-const VERSIONE = '1.7-beta';
+const VERSIONE = '1.8-beta';
 
 // ---------- impostazioni (solo su questo dispositivo) ----------
 const FIRMATARIO_DEFAULT = { nome: 'Dott. Gianluca POMA', qualifica: 'Consulente Chimico di Porto' };
@@ -73,6 +73,66 @@ $('btnGPS').onclick = () => {
 };
 initMappa();
 
+// ---------- meteo attuale da servizio (Open-Meteo) e classe di stabilità con il metodo di Turner (V2, 21/11/2026) ----------
+// Classe di Pasquill-Gifford: metodo di Turner come nel PCRAMMET User's Guide (EPA-454/B-96-001, Tabelle 4-1 e 4-2).
+const TURNER = [ // righe: vento in nodi 1..12+; colonne: forte, moderata, lieve, debole insolazione, coperto basso, notte ≥5/10, notte <5/10
+  null, [1, 1, 2, 3, 4, 6, 7], [1, 2, 2, 3, 4, 6, 7], [1, 2, 2, 3, 4, 6, 7], [1, 2, 3, 4, 4, 5, 6], [1, 2, 3, 4, 4, 5, 6], [2, 2, 3, 4, 4, 5, 6],
+  [2, 2, 3, 4, 4, 4, 5], [2, 3, 3, 4, 4, 4, 5], [2, 3, 3, 4, 4, 4, 5], [3, 3, 4, 4, 4, 4, 5], [3, 3, 4, 4, 4, 4, 4], [3, 4, 4, 4, 4, 4, 4]];
+function elevazioneSole(lat, lon, d) {           // gradi; formule NOAA semplificate (precisione circa 1°)
+  const rad = Math.PI / 180, g = 2 * Math.PI / 365 * (Math.floor((d - Date.UTC(d.getUTCFullYear(), 0, 0)) / 864e5) - 1 + (d.getUTCHours() - 12) / 24);
+  const decl = 0.006918 - 0.399912 * Math.cos(g) + 0.070257 * Math.sin(g) - 0.006758 * Math.cos(2 * g) + 0.000907 * Math.sin(2 * g) - 0.002697 * Math.cos(3 * g) + 0.00148 * Math.sin(3 * g);
+  const eqt = 229.18 * (0.000075 + 0.001868 * Math.cos(g) - 0.032077 * Math.sin(g) - 0.014615 * Math.cos(2 * g) - 0.040849 * Math.sin(2 * g));
+  const tst = d.getUTCHours() * 60 + d.getUTCMinutes() + eqt + 4 * lon, ha = (tst / 4 - 180) * rad;
+  const cz = Math.sin(lat * rad) * Math.sin(decl) + Math.cos(lat * rad) * Math.cos(decl) * Math.cos(ha);
+  return 90 - Math.acos(Math.max(-1, Math.min(1, cz))) / rad;
+}
+function classeTurner({ u_ms, elev, cc, low, mid }) {
+  const kn = Math.max(1, Math.min(12, Math.round(u_ms * 1.94384))), C = cc / 10;   // copertura in decimi
+  const soffitto = low >= 50 ? 'basso' : mid >= 50 ? 'medio' : 'alto';            // approssimazione dai tre strati di Open-Meteo
+  let col, desc;
+  if (C >= 10 && soffitto === 'basso') { col = 4; desc = 'cielo coperto con nubi basse: neutra'; }
+  else if (elev <= 0) { col = C >= 5 ? 5 : 6; desc = `notte, copertura ${C >= 5 ? '≥' : '<'} 5/10`; }
+  else {
+    let ni = elev > 60 ? 4 : elev > 35 ? 3 : elev > 15 ? 2 : 1;
+    if (C > 5 && C < 10) ni -= soffitto === 'basso' ? 2 : soffitto === 'medio' ? 1 : 0;
+    else if (C >= 10) ni -= soffitto === 'medio' ? 2 : 1;
+    ni = Math.max(ni, 1);
+    col = 4 - ni; desc = `giorno, elevazione del sole ${Math.round(elev)}°, insolazione ${['forte', 'moderata', 'lieve', 'debole'][col]}`;
+  }
+  const n = TURNER[kn][col], cl = 'ABCDEFF'[n - 1];
+  return { classe: cl, n, kn, desc: desc + `, copertura ${Math.round(cc)}% (bassa ${Math.round(low)}%, media ${Math.round(mid)}%), soffitto stimato ${soffitto === 'basso' ? 'sotto 7000 ft' : soffitto === 'medio' ? 'tra 7000 e 16 000 ft' : 'sopra 16 000 ft'}, vento ${kn} nodi` + (n === 7 ? '; classe G trattata come F' : '') };
+}
+let meteoServizio = null;
+$('btnMeteo').onclick = () => {
+  const vai = (lat, lon) => {
+    $('meteoInfo').textContent = 'Richiesta al servizio meteo…';
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}&current=temperature_2m,wind_speed_10m,wind_direction_10m,cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high&wind_speed_unit=ms&timezone=auto`;
+    fetch(url).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }).then(j => {
+      const c = j.current, u = Math.max(+c.wind_speed_10m, 0.5);
+      const t = new Date(), el = elevazioneSole(lat, lon, t);
+      const st = classeTurner({ u_ms: u, elev: el, cc: c.cloud_cover, low: c.cloud_cover_low, mid: c.cloud_cover_mid });
+      $('vento').value = u.toFixed(1); $('temp').value = Math.round(c.temperature_2m); $('dirVento').value = Math.round(c.wind_direction_10m) % 360; $('dirSet').value = ''; $('stab').value = st.classe;
+      meteoServizio = { u: +u.toFixed(1), T: Math.round(c.temperature_2m), dir: Math.round(c.wind_direction_10m) % 360, stab: st.classe, ora: c.time, lat, lon,
+        testo: `Meteo dal servizio Open-Meteo (modelli di previsione, valori "attuali" del ${c.time.replace('T', ' ')} ora locale) nel punto ${lat.toFixed(4)}, ${lon.toFixed(4)}: vento a 10 m ${u.toFixed(1).replace('.', ',')} m/s da ${Math.round(c.wind_direction_10m)}°, temperatura ${Math.round(c.temperature_2m)} °C. Classe di stabilità ${st.classe} stimata con il metodo di Turner (PCRAMMET User's Guide, EPA-454/B-96-001, Tabelle 4-1 e 4-2): ${st.desc}. Soffitto stimato dagli strati di Open-Meteo (nubi basse fino a 3 km, medie 3–8 km), approssimazione dichiarata. Dati di modello, non misure sul posto: verificare con l'osservazione locale` };
+      $('meteoInfo').textContent = meteoServizio.testo + '.';
+    }).catch(e => { meteoServizio = null; $('meteoInfo').textContent = 'Servizio meteo non raggiungibile (' + e.message + '): inserire i dati a mano.'; });
+  };
+  if (posizione) return vai(posizione[0], posizione[1]);
+  if (!navigator.geolocation) { $('meteoInfo').textContent = 'Posizione non disponibile: toccare la mappa per indicare il luogo.'; return; }
+  $('meteoInfo').textContent = 'Ricerca posizione GPS…';
+  navigator.geolocation.getCurrentPosition(p => { impostaPosizione(p.coords.latitude, p.coords.longitude, 'GPS', p.coords.accuracy); vai(p.coords.latitude, p.coords.longitude); },
+    () => { $('meteoInfo').textContent = 'Posizione non disponibile: toccare la mappa per indicare il luogo, poi riprovare.'; }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 });
+};
+// collega il meteo del servizio ai risultati, solo se i valori nei campi non sono stati cambiati
+function applicaMeteoServizio(ris) {
+  if (!meteoUser || !meteoServizio) return;
+  const m = meteoServizio, uguali = +num('vento') === m.u && +num('temp') === m.T && $('stab').value === m.stab && num('dirVento') === m.dir;
+  for (const r of ris) if (r.meteo) {
+    if (uguali) { r.meteo.origine = 'dal servizio Open-Meteo'; r.ipotesi.push(m.testo); }
+    else r.ipotesi.push('Meteo inserito dall\'utente: i valori proposti dal servizio Open-Meteo sono stati modificati a mano.');
+  }
+}
+
 function cerchiDaRisultato(r, g) {
   const F = formeZone(r), nomi = { III: 'Zona III', II: 'Zona II', I: 'Zona I' }, col = { III: '#f1c40f', II: '#e67e22', I: '#c0392b', PROT: '#f1c40f', ERG: '#e67e22' };
   if (!r.soloERG) { F.add(r.zone_m.III, col.III, 'III'); F.add(r.zone_m.II, col.II, 'II'); F.add(r.zone_m.I, col.I, 'I'); }
@@ -82,6 +142,7 @@ function cerchiDaRisultato(r, g) {
   }
   for (const f of F.z) f.nome = f.key === 'PROT' ? `Protezione sottovento (${r.ergCaso.per}${F.orient ? '' : ', disegnata come cerchio'})` : f.key === 'ERG' ? 'ERG: ' + r.ergCaso.etichetta : nomi[f.key];
   const zone = F.z.map(f => ({ ...f, dist: f.tipo === 'cerchio' ? f.r : f.D }));
+  for (const f of formeFumi(r).z) zone.push({ ...f, linea: true, dash: f.dash });
   if (r.bl) for (const x of r.bl.righe) if (BL_DISEGNO[x.k] && x.m) zone.push({ tipo: 'cerchio', r: x.m, cx: 0, cy: 0, dist: x.m, col: BL_DISEGNO[x.k][0], nome: 'BLEVE: ' + x.nome, linea: true });
   if (r.qd) for (const x of r.qd.righe) if (x.k === 'IBD' || x.k === 'EWD') zone.push({ tipo: 'cerchio', r: x.m, cx: 0, cy: 0, dist: x.m, col: '#7d3c98', nome: 'DoD: ' + x.nome, linea: true });
   const iso = isoNumero(g);
@@ -97,7 +158,10 @@ function disegnaMappa() {
   const pts = [];
   for (const z of zone) {
     const tip = `${z.nome}: ${z.dist} m`;
-    if (z.tipo === 'quadrato') {
+    if (z.tipo === 'poligono') {
+      const ll = z.pts.map(([x, y]) => spostaLL(posizione, x, y)); pts.push(...ll);
+      L.polygon(ll, { color: z.col, weight: 2, dashArray: z.dash || '8 4', fill: false }).bindTooltip(tip + ' sottovento').addTo(livelloZone);
+    } else if (z.tipo === 'quadrato') {
       const ll = z.pts.map(([x, y]) => spostaLL(posizione, x, y)); pts.push(...ll);
       L.polygon(ll, { color: z.col, weight: 2, fillColor: z.col, fillOpacity: 0.28 }).bindTooltip(tip + ' sottovento').addTo(livelloZone);
       if (z.conf) {
@@ -107,14 +171,14 @@ function disegnaMappa() {
     } else {
       const c = spostaLL(posizione, z.cx, z.cy);
       pts.push(spostaLL(c, z.r, z.r), spostaLL(c, -z.r, -z.r));
-      L.circle(c, z.linea ? { radius: z.r, color: z.col, weight: 2, dashArray: '8 4', fill: false } : { radius: z.r, color: z.col, weight: 2, fillColor: z.col, fillOpacity: 0.28 }).bindTooltip(tip).addTo(livelloZone);
+      L.circle(c, z.linea ? { radius: z.r, color: z.col, weight: 2, dashArray: z.dash || '8 4', fill: false } : { radius: z.r, color: z.col, weight: 2, fillColor: z.col, fillOpacity: 0.28 }).bindTooltip(tip).addTo(livelloZone);
     }
   }
   L.circle(posizione, { radius: iso, color: '#2c3e50', weight: 2, dashArray: '6 5', fill: false }).bindTooltip(`Isolamento iniziale ERG: ${iso} m`).addTo(livelloZone);
   pts.push(spostaLL(posizione, iso, iso), spostaLL(posizione, -iso, -iso));
   if (r.ergCaso && !r.soloERG) { L.circle(posizione, { radius: r.ergCaso.dist, color: '#2c3e50', weight: 1.5, dashArray: '2 6', fill: false }).bindTooltip(`ERG: ${r.ergCaso.etichetta} ${r.ergCaso.dist} m`).addTo(livelloZone); pts.push(spostaLL(posizione, r.ergCaso.dist, r.ergCaso.dist), spostaLL(posizione, -r.ergCaso.dist, -r.ergCaso.dist)); }
-  if (orient) {
-    const L0 = Math.max(iso, 30) * 1.5;
+  if (orient || (r.dirVento != null && formeFumi(r).z.length)) {
+    const L0 = Math.max(iso, 30) * 1.5, wb = ((r.dirVento + 180) % 360) * Math.PI / 180, ux = Math.sin(wb), uy = Math.cos(wb);
     L.polyline([posizione, spostaLL(posizione, ux * L0, uy * L0)], { color: '#2c3e50', weight: 3 }).bindTooltip(`Vento da ${Math.round(r.dirVento)}°: la nube va verso ${Math.round((r.dirVento + 180) % 360)}°`).addTo(livelloZone);
   }
   mappa.fitBounds(L.latLngBounds(pts), { animate: false, padding: [10, 10] });

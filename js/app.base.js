@@ -425,6 +425,7 @@ function notaVento(r) {
   }
   if (r.fumi && r.fumi.righe) out.push('I fumi tossici di combustione dipendono invece dal vento: le loro distanze sono sottovento e sono riportate nella tabella dedicata, senza disegno sulla mappa.');
   if (r.qd) out.push('Le distanze DoD per gli esplosivi non dipendono dal vento e sono disegnate come cerchi.');
+  if (r.fumi && r.fumi.righe) out.push(`I fumi di combustione dipendono dal vento: ${r.dirVento != null ? `il pennacchio è disegnato sottovento rispetto alla direzione indicata (${Math.round(r.dirVento)}°)` : 'senza direzione del vento le distanze dei fumi sono disegnate come cerchi (inviluppo cautelativo)'}; si disegna il pennacchio senza innalzamento, limite cautelativo; le distanze con innalzamento sono nella tabella dei fumi.`);
   if (r.bl) out.push('Onda d\'urto e frammenti del BLEVE non dipendono dal vento e sono disegnati come cerchi; i frammenti dei recipienti cilindrici cadono di preferenza lungo l\'asse del recipiente.');
   return out;
 }
@@ -457,6 +458,32 @@ function formeZone(r) {
     z.push({ tipo: 'quadrato', D: d, col, key, pts: [[-uy * d / 2, ux * d / 2], [uy * d / 2, -ux * d / 2], [uy * d / 2 + ux * d, -ux * d / 2 + uy * d], [-uy * d / 2 + ux * d, ux * d / 2 + uy * d]] });
   };
   return { add, z, orient, ux, uy };
+}
+
+// ---------- fumi di combustione su schema e mappa (V2, 21/11/2026) ----------
+// si disegna il pennacchio senza innalzamento (limite cautelativo); con più meteo, quello con la distanza LOC maggiore
+const FUMI_COL = '#0f7b7b', FUMI_DASH = { LC50: '7 3', IDLH: '3 3', LOC: '1 3' };
+function formeFumi(r) {
+  const fu = r.fumi; if (!fu || !fu.righe || !fu.righe.length) return { z: [], nota: '' };
+  const lun = x => (x == null ? 0 : Number.isFinite(x) ? x : 1e9);
+  const riga = fu.righe.reduce((a, b) => (lun(b.senza.LOC) > lun(a.senza.LOC) ? b : a));
+  const dv = r.dirVento, orient = dv != null, b = orient ? ((dv + 180) % 360) * Math.PI / 180 : 0, ux = Math.sin(b), uy = Math.cos(b);
+  const aloha = orient && r.rapprScelta === 'aloha';
+  const W = ([X, Y]) => [ux * X + uy * Y, uy * X - ux * Y];
+  const z = [], oltre = [];
+  for (const k of ['LOC', 'IDLH', 'LC50']) {
+    const d = riga.senza[k];
+    if (d === Infinity) { oltre.push(k); continue; }
+    if (!(d > 0)) continue;
+    const nome = `Fumi (${fu.specie.split(' (')[0]}), ${k} ${fu.soglie[k]} ppm, pennacchio senza innalzamento, meteo ${riga.meteo}`;
+    if (!orient) { z.push({ tipo: 'cerchio', r: d, cx: 0, cy: 0, dist: d, col: FUMI_COL, dash: FUMI_DASH[k], nome, k }); continue; }
+    const imp = aloha && riga.impSenza && riga.impSenza[k];
+    const loc = imp ? [...imp, ...imp.slice().reverse().map(([x, y]) => [x, -y])] : [[0, d / 2], [0, -d / 2], [d, -d / 2], [d, d / 2]];
+    z.push({ tipo: 'poligono', pts: loc.map(W), dist: d, col: FUMI_COL, dash: FUMI_DASH[k], nome, k });
+  }
+  const forma = !orient ? 'cerchi (direzione del vento non indicata)' : aloha ? 'impronta calcolata del pennacchio, orientata sottovento' : 'quadrati sottovento come la zona di azione protettiva ERG';
+  const nota = z.length || oltre.length ? `Fumi di combustione (verde petrolio: tratteggio lungo LC50, tratteggio corto IDLH, puntinato LOC): pennacchio senza innalzamento, limite cautelativo, meteo ${riga.meteo}${fu.righe.length > 1 ? ' (il più sfavorevole fra quelli calcolati)' : ''}, disegnato come ${forma}.${oltre.length ? ' ' + oltre.join(', ') + ' oltre 10 km: non disegnato.' : ''}` : '';
+  return { z, nota };
 }
 
 // meteo reale con direzione del vento (richiesta di Luca, 19/11/2026)
@@ -640,7 +667,7 @@ $('calc').onclick = () => {
     { const mv = meteoUser && !$('meteobox').classList.contains('hide');
       const dv = mv ? dirVentoScelta() : null, rs = mv ? $('rappr').value : 'erg';
       risultati.forEach(r => { r.meteoReale = mv; r.rapprScelta = rs;
-        if (dv !== null) { r.dirVento = dv; r.rappr = rs === 'aloha' && r.impronta && !r.soloERG && !/VCE/.test(r.scenario) ? 'aloha' : 'erg'; } }); }
+        if (dv !== null) { r.dirVento = dv; r.rappr = rs === 'aloha' && r.impronta && !r.soloERG && !/VCE/.test(r.scenario) ? 'aloha' : 'erg'; } }); if (mv) applicaMeteoServizio(risultati); }
     if (cur.classe.startsWith('1.')) {
       const { nem } = leggiNEM(), na = num('nemart');
       const qd = M.qdDoD({ div: cur.classe, nem_kg: nem, nemArticolo_kg: na && na > 0 ? na : null, ferrovia: !!($('ferro') && $('ferro').checked), grossoCalibro: !!($('calibro') && $('calibro').checked) });
@@ -795,9 +822,11 @@ function disegna(r, g) {
   const ergApp = !r.soloERG && r.ergCaso ? r.ergCaso.dist : 0;
   const qdC = r.qd ? r.qd.righe.filter(x => x.k === 'IBD' || x.k === 'EWD') : [];
   const blC = r.bl ? r.bl.righe.filter(x => BL_DISEGNO[x.k] && x.m) : [];
+  const FU = formeFumi(r);
   // riquadro che contiene tutte le forme: lo schema si centra sulle zone, non sulla sorgente
   const bb = [[0, 0]], cerchio = (cx, cy, rr) => bb.push([cx - rr, cy - rr], [cx + rr, cy + rr]);
   cerchio(0, 0, Math.max(iso, ergApp, ...qdC.map(x => x.m), ...blC.map(x => x.m)));
+  for (const f of FU.z) f.tipo === 'cerchio' ? cerchio(0, 0, f.r) : bb.push(...f.pts);
   for (const f of F.z) { f.tipo === 'cerchio' ? cerchio(f.cx, f.cy, f.r) : bb.push(...f.pts); if (f.conf) f.conf.cerchio ? cerchio(0, 0, f.conf.cerchio) : f.conf.linee.forEach(l => bb.push(...l)); }
   const x0 = Math.min(...bb.map(q => q[0])), x1 = Math.max(...bb.map(q => q[0])), y0 = Math.min(...bb.map(q => q[1])), y1 = Math.max(...bb.map(q => q[1]));
   const sc = (W - 40) / Math.max(x1 - x0, y1 - y0, 1), mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
@@ -813,6 +842,8 @@ function disegna(r, g) {
   s += `<circle cx="${S0}" cy="${T0}" r="${iso * sc}" fill="none" stroke="var(--erg)" stroke-width="1.6" stroke-dasharray="5 4"/>`;
   if (ergApp) s += `<circle cx="${S0}" cy="${T0}" r="${ergApp * sc}" fill="none" stroke="var(--erg)" stroke-width="1.2" stroke-dasharray="2 4"/>`;
   for (const x of qdC) s += `<circle cx="${S0}" cy="${T0}" r="${x.m * sc}" fill="none" stroke="#7d3c98" stroke-width="${x.k === 'IBD' ? 1.8 : 1.2}" stroke-dasharray="${x.k === 'IBD' ? '8 3' : '1 3'}"/>`;
+  for (const f of FU.z) s += f.tipo === 'cerchio' ? `<circle cx="${S0}" cy="${T0}" r="${f.r * sc}" fill="none" stroke="${f.col}" stroke-width="1.6" stroke-dasharray="${f.dash}"/>`
+    : `<polygon points="${f.pts.map(([x, y]) => X(x).toFixed(1) + ',' + Y(y).toFixed(1)).join(' ')}" fill="none" stroke="${f.col}" stroke-width="1.6" stroke-dasharray="${f.dash}"/>`;
   for (const x of blC) s += `<circle cx="${S0}" cy="${T0}" r="${x.m * sc}" fill="none" stroke="${BL_DISEGNO[x.k][0]}" stroke-width="1.4" stroke-dasharray="${BL_DISEGNO[x.k][1]}"/>`;
   s += `<circle cx="${S0}" cy="${T0}" r="3" fill="var(--ink)"/>`;
   // scala
@@ -820,8 +851,9 @@ function disegna(r, g) {
   s += `<line x1="12" y1="${W - 14}" x2="${12 + nice * sc}" y2="${W - 14}" stroke="var(--ink)" stroke-width="2"/><text x="12" y="${W - 20}" font-size="11" fill="var(--ink)">${nice >= 1000 ? nice / 1000 + ' km' : nice + ' m'}</text>`;
   // nord e vento
   s += `<text x="${W - 14}" y="16" font-size="12" text-anchor="middle" font-weight="bold" fill="var(--ink)">N</text><line x1="${W - 14}" y1="20" x2="${W - 14}" y2="34" stroke="var(--ink)" stroke-width="1.5"/>`;
-  if (F.orient) {
-    const ax = S0 + F.ux * 14, ay = T0 - F.uy * 14, bx = S0 + F.ux * 54, by = T0 - F.uy * 54;
+  if (F.orient || (FU.z.length && r.dirVento != null)) {
+    const wb = ((r.dirVento + 180) % 360) * Math.PI / 180, wx = Math.sin(wb), wy = Math.cos(wb);
+    const ax = S0 + wx * 14, ay = T0 - wy * 14, bx = S0 + wx * 54, by = T0 - wy * 54;
     s += `<defs><marker id="frv" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 z" fill="var(--ink)"/></marker></defs><line x1="${ax}" y1="${ay}" x2="${bx}" y2="${by}" stroke="var(--ink)" stroke-width="2" marker-end="url(#frv)"/><text x="12" y="16" font-size="11" fill="var(--ink)">vento da ${Math.round(r.dirVento)}° (${nomeSettore(r.dirVento)})</text>`;
   } else if (r.meteo) s += `<text x="12" y="16" font-size="11" fill="var(--ink)">direzione del vento non indicata</text>`;
   $('graf').innerHTML = s + '</svg>';
@@ -832,6 +864,7 @@ function disegna(r, g) {
     + 'Tratteggio: isolamento iniziale ERG ' + iso + ' m. ' + (ergApp ? 'Puntinato: distanza ERG applicabile (' + r.ergCaso.etichetta + ') ' + ergApp + ' m. ' : '')
     + (r.soloERG ? 'Area colorata: distanza ERG da applicare' + (r.ergCaso && r.ergCaso.prot_km ? ` (arancio: isolamento ${r.ergCaso.dist} m; giallo: protezione sottovento ${String(r.ergCaso.prot_km).replace('.', ',')} km${F.orient ? '' : ', disegnata come cerchio'}). ` : '. ') : '')
     + (nZone < 3 && !r.soloERG ? 'Le zone non raggiunte non sono disegnate.' : '')
+    + (FU.nota ? ' ' + FU.nota : '')
     + (blC.length ? ' BLEVE: ' + blC.map(x => `${x.nome.toLowerCase()} ${x.m} m`).join('; ') + ' (marrone: sovrappressione, tratteggio = 0,14 bar, puntinato = 0,03 bar; grigio: frammenti, tratteggio = 80%, puntinato = gittata massima osservata).' : '')
     + (qdC.length ? ' Viola: distanze DoD (' + qdC.map(x => (x.k === 'IBD' ? 'IBD tratteggio lungo ' : 'allontanamento in emergenza puntinato ') + x.m + ' m').join('; ') + ').' : '');
 }
