@@ -71,6 +71,12 @@
       LC50: 4439, LC50_t: '1 h', IDLH: 800, LOC: 80, tossico: true, fonteLFLx: 'NIOSH Pocket Guide 2005-149',
       fonte: `proprietà fisiche ${HEOS} (controllo NIOSH Pocket Guide 2005-149: PM 44,1, ebollizione 51 °F = 10,6 °C, tensione di vapore 1,46 atm, densità del liquido 0,82 a 10 °C); potere calorifico inferiore 27,65 MJ/kg dalle entalpie di formazione NIST (C2H4O gas −52,6 kJ/mol, prodotti CO2 e H2O gassosi); LFL 3,0% (NIOSH Pocket Guide 2005-149; UEL 100%); LC50 ratto 1 h 4439 ppm (femmine, il valore più basso fra i sessi; maschi 5748 ppm: studio di tossicità acuta per inalazione pubblicato su PMC3139202; la documentazione IDLH NIOSH riporta la LC50 ratto 4 h di 1460 ppm, Jacobson et al. 1956); IDLH 800 ppm (NIOSH, cancerogeno "Ca")`,
       avviso: 'Ossido di etilene: è insieme infiammabile (UEL 100%: il vapore puro può decomporsi e bruciare anche senza aria) e tossico, cancerogeno per NIOSH. Bolle a 10,6 °C: a temperatura ambiente il recipiente è a bassa pressione (circa 1,5 bar a 20 °C). Riscaldato o contaminato (acidi, basi, ossidi metallici) può polimerizzare in modo violento con rottura del recipiente. I frammenti di ossido di etilene vanno più lontano di quelli del GPL (Holden e Reeves 1985). Valutare lo scenario tossico (gas tossico liquefatto) e quelli di incendio ed esplosione.' },
+    '1972': { nome: 'gas naturale liquefatto refrigerato (GNL, calcolo come metano puro)', criogenico: true, pm: 16.043, Tb: 111.67, hv: 510.8, rhol: 422, dHc: 50010, LFL: 4.4,
+      contCrio: [['cist', 'Cisterna criogenica / tank-container (circa 40 m³)', 16000], ['altro', 'Altro recipiente criogenico', 1000]],
+      mburnTerra: 0.078, mburnAcqua: 0.147, dHcPF: 50000, EfPF: 286,
+      fontePF: 'velocità di combustione sul terreno 0,078 kg/m²s e calore di combustione 50 000 kJ/kg (Babrauskas, SFPE Handbook 2002, riportato in NUREG-1805 Tab. 3-2, "LNG mostly CH4"); sull\'acqua 0,147 kg/m²s (Sandia, prove Phoenix 2009 su acqua, Blanchat et al., SAND2010-8676); potere emissivo 286 kW/m², il valore massimo misurato nella prova Sandia con pozza di 56 m sull\'acqua',
+      fonte: `proprietà fisiche del metano ${HEOS} (ebollizione −161,5 °C a 1 atm, entalpia di vaporizzazione 510,8 kJ/kg, densità del liquido 422 kg/m³ all'ebollizione); il metano non è nel NIOSH Pocket Guide; potere calorifico inferiore 50,0 MJ/kg da entalpie di formazione NIST WebBook; LFL 4,4% (${GESTIS})`,
+      avviso: 'GNL: il gas naturale reale contiene anche etano, propano e azoto; il calcolo come metano puro è un\'approssimazione (la nube del GNL reale è un po\' più pesante e più infiammabile). Sull\'acqua il contatto violento può dare una transizione rapida di fase (RPT): un\'esplosione fisica locale senza combustione, non calcolata. Il vapore freddo è più pesante dell\'aria finché non si riscalda oltre circa −110 °C, poi diventa più leggero.' },
     '1962': { nome: 'etilene compresso', compresso: true, pm: 28.053, gam: 1.244, dHc: 47165, LFL: 2.4,
       Z: { 1: 0.994, 10: 0.938, 25: 0.833, 40: 0.703, 50: 0.588, 55: 0.512, 60: 0.406, 65: 0.308, 70: 0.286, 75: 0.286, 80: 0.292, 90: 0.31, 100: 0.331, 125: 0.387, 150: 0.446, 200: 0.561 }, Pdef: 60,
       fonte: `fattore di compressibilità a 20 °C da CoolProp; ${LHV}; LFL 2,4% (${GESTIS}, valore che differisce da CHEMSAFE)`,
@@ -84,7 +90,7 @@
     const d = DATA.db[u];
     if (!d) continue;
     const ha = (old.modelli || []).includes('BL') || p.rho_liq;
-    d.modelli = [...(p.tossico ? ['GL'] : []), 'JF', 'FF', 'VCE', ...(ha && !p.compresso ? ['BL'] : []), 'ERG'];
+    d.modelli = p.criogenico ? ['FF', 'VCE', 'PF', 'ERG'] : [...(p.tossico ? ['GL'] : []), 'JF', 'FF', 'VCE', ...(ha && !p.compresso ? ['BL'] : []), 'ERG'];
     d.modello = d.modelli[0];
   }
 })();

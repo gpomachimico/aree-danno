@@ -147,7 +147,7 @@ const NOMI_IMB = { lp: 'grande imballaggio', bk: 'contenitore per rinfuse (BK)',
 function buildFields() {
   const m = cur.modello, p = DATA.props[cur.u] || {};
   let h = '';
-  if (m === 'PF') {
+  if (m === 'PF' && !p.criogenico) {
     h = `<label>Imballaggio</label>${opzioniImbLiquidi().html}
       <div class="row">${f('vol', 'Volume rilasciato (L)', opzioniImbLiquidi().vol)}${f('area', 'Area bacino (m²) – vuoto = non confinato', '', 'placeholder="non confinato"')}</div>
       <p class="small">Sostanza di calcolo: ${p.nome}</p>${campiFumi(p)}`;
@@ -191,6 +191,8 @@ function buildFields() {
       <div class="row">${f('massa', `Contenuto di ${p.nome} (kg)`, def[2])}${f('pbar', 'Pressione al cedimento (bar assoluti)', +p50.toFixed(1))}</div>
       <div class="row">${f('riemp', 'Riempimento in volume a 15 °C (%)', 80, 'min="10" max="98"')}<div></div></div>
       <p class="small">Recipiente di gas tossico non infiammabile coinvolto in un incendio o surriscaldato: il cedimento improvviso libera l'energia di espansione del liquido surriscaldato (onda d'urto) e proietta frammenti; non si forma la fireball. Pressione proposta: tensione di vapore a 50 °C (${String(+p50.toFixed(1)).replace('.', ',')} bar), temperatura di riferimento per il riempimento dei recipienti; può essere più alta se il recipiente è esposto al fuoco. L'intero contenuto va in aria in un istante: per la nube tossica usare lo scenario "Gas tossico liquefatto" con rilascio totale.</p>`;
+  } else if (p.criogenico && ['GL', 'FF', 'VCE', 'PF'].includes(m)) {
+    h = campiPC(p, m);
   } else if (m === 'GL') {
     h = campiGL(p);
   } else if (m === 'JF' || m === 'FF' || m === 'VCE') {
@@ -203,7 +205,7 @@ function buildFields() {
   }
   $('fields').innerHTML = h;
   $('inbox').classList.remove('hide');
-  $('meteobox').classList.toggle('hide', !(['GA', 'GL', 'CL', 'W2', 'JF', 'FF', 'VCE'].includes(m) || (m === 'PF' && p.fumi && p.fumi.tipo !== 'qual') || (cur.tih && !['PF', 'BL', 'TNT'].includes(m))));
+  $('meteobox').classList.toggle('hide', !(['GA', 'GL', 'CL', 'W2', 'JF', 'FF', 'VCE'].includes(m) || (m === 'PF' && p.criogenico) || (m === 'PF' && p.fumi && p.fumi.tipo !== 'qual') || (cur.tih && !['PF', 'BL', 'TNT'].includes(m))));
   if (p.fonte && m !== 'BL') $('fields').insertAdjacentHTML('beforeend', `<p class="small">Fonti dei dati: ${p.fonte}.</p>`);
   $('calc').classList.remove('hide');
   bindExtra();
@@ -212,8 +214,40 @@ function buildFields() {
   if (m === 'GA') bindForo();
   if (m === 'BT') { const c = $('btc'); c.onchange = () => { $('massa').value = c.value; }; }
   if (m === 'W2') { const iw = $('imbW'); iw.onchange = () => { if (+iw.value) $('massaW').value = iw.value; }; }
-  if (m === 'GL') bindGL();
-  if (m === 'JF' || m === 'FF' || m === 'VCE') bindGF(p);
+  if (p.criogenico) { if ($('pcc')) bindPC(p); }
+  else {
+    if (m === 'GL') bindGL();
+    if (m === 'JF' || m === 'FF' || m === 'VCE') bindGF(p);
+  }
+}
+
+// ---------- liquidi refrigerati: pozza criogenica bollente (V2, 21/11/2026) ----------
+function campiPC(p, m) {
+  const op = p.contCrio, sub = Object.entries(M.SUBSTRATI).filter(([k]) => !(p.solubile && k === 'acqua'));
+  const nota = { GL: `Soglie: LC50 ${p.LC50} ppm (ratto, ${p.LC50_t}) · IDLH ${p.IDLH} ppm · LOC ${p.LOC} ppm.`,
+    FF: `Soglie: LFL ${String(p.LFL).replace('.', ',')}% (elevata letalità) e ½ LFL (inizio letalità), D.M. 9/5/2001.`,
+    VCE: 'Soglie: sovrappressione 0,3 (0,6 in spazi aperti) · 0,14 · 0,07 · 0,03 bar (D.M. 9/5/2001).',
+    PF: 'Soglie: irraggiamento stazionario 12,5 · 7 · 5 · 3 kW/m² (D.M. 9/5/2001). Pozza incendiata subito, senza nube.' }[m];
+  return `<label>Recipiente</label><select id="pcc">${op.map(([v, t, ms]) => `<option value="${ms}">${t} (${ms} kg)</option>`).join('')}</select>
+    <select id="gls" class="hide"><option value="pozza">pozza</option></select>
+    <div class="row">${f('massa', 'Liquido rilasciato (kg)', op[0][2])}<div><label for="subPC">Superficie su cui si spande</label><select id="subPC">${sub.map(([k, v]) => `<option value="${k}">${v.nome[0].toUpperCase() + v.nome.slice(1)}</option>`).join('')}</select></div></div>
+    <div class="row">${f('areaPC', 'Area del bacino di contenimento (m²) – vuoto = non confinato', '', 'placeholder="non confinato"')}<div><label for="spesPC">Spessore minimo della pozza non confinata</label><select id="spesPC"><option value="0.01" selected>1 cm – EPA OCA (1999), predefinito</option><option value="0.005">0,5 cm – ALOHA 5.4.4 Tech. Doc. § 3.4.4.2</option></select></div></div>
+    ${m === 'VCE' ? `<label for="eta">Rendimento dell'esplosione</label><select id="eta"><option value="0.03">3% – campo aperto, poca congestione (CCPS)</option><option value="0.1">10% – scenario peggiore EPA, area congestionata</option></select>` : ''}
+    <p class="small">Liquido refrigerato a pressione atmosferica (${p.nome}): rilascio istantaneo, la pozza bolle alla temperatura di ebollizione (${String(+(p.Tb - 273.15).toFixed(1)).replace('.', ',')} °C) con il calore ceduto dalla superficie, che si assume alla temperatura dell'aria. ${nota}${p.solubile ? ' Sull\'acqua il calcolo non è previsto (la sostanza si scioglie).' : ''}</p>`;
+}
+function bindPC(p) {
+  const c = $('pcc'); c.onchange = () => { $('massa').value = c.value; };
+  // pozza sull'acqua: si propone il luogo del rilascio "sull'acqua" (classe F), modificabile
+  const sb = $('subPC'), aq = $('acqua');
+  sb.onchange = () => { if (!aq) return; if (sb.value === 'acqua' && !aq.value) aq.value = 'F'; else if (sb.value !== 'acqua' && aq.value) aq.value = ''; };
+}
+function leggiPC(p) {
+  const ms = num('massa'); if (!ms || ms <= 0) throw 'Inserire la massa di liquido rilasciato';
+  const ar = num('areaPC'); if (ar !== null && ar !== undefined && ar <= 0) throw 'Area del bacino non valida';
+  const T = meteoUser ? (num('temp') ?? 20) : 20;
+  const pc = M.pozzaCriogenica({ massa_kg: ms, prop: p, substrato: $('subPC').value, area_m2: ar || null, spessore_m: +$('spesPC').value, T_C: T });
+  const nomeC = ($('pcc').selectedOptions[0] || {}).text || 'recipiente criogenico';
+  return { ms, pc, T, cont: `Recipiente: ${nomeC.replace(/ \(\d+ kg\)$/, '').toLowerCase()}, rilascio istantaneo di ${ms} kg di ${p.nome} a pressione atmosferica` };
 }
 
 // ---------- liquidi: spandimento istantaneo o perdita continua da foro (V2, 20/11/2026) ----------
@@ -548,7 +582,33 @@ $('calc').onclick = () => {
   const m = cur.modello, p = DATA.props[cur.u] || {}, sost = `UN ${cur.u} ${cur.psn}`;
   risultati = []; tabSel = 0;
   try {
-    if (m === 'PF') {
+    if (p.criogenico && ['GL', 'FF', 'VCE', 'PF'].includes(m)) {
+      const { ms, pc, T, cont } = leggiPC(p), acqua = $('subPC').value === 'acqua';
+      if (m === 'PF') {
+        const mb = acqua ? p.mburnAcqua : p.mburnTerra;
+        const r = M.poolFire({ volume_m3: ms / p.rhol, densita_rel: p.rhol / 1000, mburn: mb, dHc_kJkg: p.dHcPF, Ef: p.EfPF, area_m2: num('areaPC') || null, spessore_m: +$('spesPC').value, sostanza: `${sost} (${p.nome})`, fonteDati: p.fontePF });
+        r.ipotesi.unshift(cont + `, sopra ${pc.substrato}; innesco immediato: la pozza brucia senza formare prima la nube`);
+        r.ipotesi.push(`Velocità di combustione ${acqua ? 'sull\'acqua' : 'sul terreno'} e potere emissivo del GNL in luogo dei valori NISTIR; potere emissivo con soot trascurabile, adatto alle pozze di GNL anche grandi (Sandia). Dati della sostanza: ${p.fonte}`);
+        risultati = [r];
+      } else {
+        const base = { massa_kg: +pc.massa_emessa_kg.toFixed(1), scenario: 'pozza', prop: p, sostanza: `${sost} (${p.nome})`, contenitore: cont,
+          generato: { durata_s: pc.durata_s, T_K: p.Tb, ipotesi: pc.ipotesi } };
+        const meteo = meteoScelto();
+        if (m === 'GL') {
+          risultati = M.gasLiquefattoMeteo({ ...base, soglie_ppm: { LC50: p.LC50, IDLH: p.IDLH, LOC: p.LOC },
+            nota_soglie: `Soglie: LC50 = ${p.LC50} ppm (ratto, ${p.LC50_t}, senza correzione temporale); IDLH ${p.IDLH} ppm (NIOSH); LOC = IDLH/10 = ${p.LOC} ppm. Fonti: ${p.fonte}` }, meteo);
+          risultati.forEach(r => r.scenario = r.scenario.replace('Gas tossico sviluppato da reazione', 'Gas tossico da pozza criogenica'));
+        } else if (m === 'FF') {
+          risultati = M.flashFireMeteo(base, meteo);
+          risultati.forEach(r => { r.scenario = r.scenario.replace('Flash fire', 'Flash fire da pozza criogenica'); r.ipotesi.push('Dati della sostanza: ' + p.fonte); });
+        } else {
+          risultati = M.vceMeteo({ ...base, eta: +$('eta').value }, meteo);
+          risultati.forEach(r => r.ipotesi.push('Dati della sostanza: ' + p.fonte));
+        }
+        risultati.forEach(r => { r.dettagli.area_pozza_m2 = Math.round(pc.A); r.dettagli.evaporazione_completa_min = +(pc.te / 60).toFixed(1); });
+      }
+      if (p.avviso) risultati.forEach(r => r.avvisi = [p.avviso, ...(r.avvisi || [])]);
+    } else if (m === 'PF') {
       const vol = num('vol'); if (!vol || vol <= 0) throw 'Inserire il volume';
       risultati = [M.poolFire({ volume_m3: vol / 1000, densita_rel: p.dens, mburn: p.mburn, dHc_kJkg: p.dHc, area_m2: num('area'), sostanza: sost + ' (' + p.nome + ')' })];
       if (p.fonte) risultati[0].ipotesi.push('Dati della sostanza: ' + p.fonte);

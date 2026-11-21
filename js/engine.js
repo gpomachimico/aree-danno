@@ -45,7 +45,7 @@ function fattoreVistaCilindro(R, H, L) {
   return Math.sqrt(Fv * Fv + Fh * Fh);
 }
 
-function poolFire({ volume_m3, densita_rel, mburn, dHc_kJkg, area_m2 = null, spessore_m = 0.01, Ef = 100, sostanza = '' }) {
+function poolFire({ volume_m3, densita_rel, mburn, dHc_kJkg, area_m2 = null, spessore_m = 0.01, Ef = 100, sostanza = '', fonteDati = null }) {
   const confinata = area_m2 !== null;
   const A = confinata ? area_m2 : volume_m3 / spessore_m;
   const D = Math.sqrt(4 * A / Math.PI), R = D / 2;
@@ -67,7 +67,7 @@ function poolFire({ volume_m3, densita_rel, mburn, dHc_kJkg, area_m2 = null, spe
       confinata ? `Pozza confinata, area ${A} m²` : `Spandimento non confinato su superficie piana, spessore ${spessore_m * 100} cm (EPA OCA 1999)`,
       'Modello a fiamma solida cilindrica verticale, NISTIR 6546 (McGrattan, Baum, Hamins 2000)',
       `Potere emissivo Ef = ${Ef} kW/m², emissività e trasmissività atmosferica = 1 (cautelativo)`,
-      `Velocità di combustione ${mburn} kg/m²s, calore di combustione ${dHc_kJkg} kJ/kg (NISTIR 6546, Tab. 1)`,
+      `Velocità di combustione ${mburn} kg/m²s, calore di combustione ${dHc_kJkg} kJ/kg (${fonteDati || 'NISTIR 6546, Tab. 1'})`,
       'Assenza di vento (fiamma verticale); bersaglio a livello del suolo orientato verso la fiamma',
       'Distanze misurate dal centro della pozza; soglie D.M. 9/5/2001 (irraggiamento stazionario)'
     ]
@@ -381,6 +381,49 @@ function improntaCurva(f, sy, s, d, N = 48) {
   pts[pts.length - 1] = [d, 0];
   return pts;
 }
+// miscela aerosol + aria secca in equilibrio omogeneo (CCPS): massa d'aria ma per kg di sostanza che fa evaporare tutte le goccioline
+// bilancio: ma·cpa·(Ta − T) = (1 − f)·hv + cpv·(T − Tb); condizione di saturazione: y·P = Psat(T)
+function miscelaAerosol({ prop, flash, Ta }) {
+  const cpa = 1004, cpv = prop.cpv || 2000, hv = prop.hv * 1000, Tb = prop.Tb, M = prop.pm / 1000, Ma = 0.028964;
+  const Tmin = Math.min(...Object.keys(prop.ps).map(Number)) + 273.15;
+  const psat = T => T <= 0 ? 0 : T < Tmin ? P_ATM * Math.exp(-hv * M / R_GAS * (1 / T - 1 / Tb)) : psatBar(prop.ps, T - 273.15) * 1e5;
+  const TT = ma => (ma * cpa * Ta + cpv * Tb - (1 - flash) * hv) / (ma * cpa + cpv);
+  const yy = ma => (1 / M) / (1 / M + ma / Ma);
+  const ma = bisect(m => yy(m) * P_ATM - psat(TT(m)), 0.01, 1000);
+  const T = TT(ma), y = yy(ma), Mm = y * M + (1 - y) * Ma;
+  return { ma, T, y, rho: P_ATM * Mm / (R_GAS * T) };
+}
+// pozza criogenica (V2 21/11/2026): liquido refrigerato a pressione atmosferica, pozza bollente alla temperatura di ebollizione.
+// Flusso dal suolo: conduzione in un mezzo semi-infinito, F = k ΔT / √(π κ t) (ALOHA 5.4.4 Tech. Doc. § 3.3.3.3.2, soluzione
+// analitica a temperatura costante; k e κ dalla Tabella 9, Briscoe e Shaw 1980 con fattore correttivo); sull'acqua F = 500 ΔT (Webber 1991, § 3.3.3.3.1).
+// Irraggiamento e calore sensibile dall'aria trascurati (piccoli rispetto al suolo all'inizio).
+const SUBSTRATI = {
+  suolo: { nome: 'terreno generico (valori predefiniti di ALOHA)', k: 8.64, kappa: 4.13e-6 },
+  cls: { nome: 'calcestruzzo', k: 8.28, kappa: 3.74e-6 },
+  sabbiaS: { nome: 'terreno sabbioso secco', k: 2.34, kappa: 1.74e-6 },
+  sabbiaU: { nome: 'terreno sabbioso umido', k: 5.31, kappa: 3.02e-6 },
+  acqua: { nome: 'acqua (mare, fiume, bacino)' }
+};
+function pozzaCriogenica({ massa_kg, prop, substrato = 'suolo', area_m2 = null, spessore_m = 0.01, T_C = 20 }) {
+  const sb = SUBSTRATI[substrato]; if (!sb) throw 'Substrato non previsto';
+  const Ta = T_C + 273.15, dT = Ta - prop.Tb, hv = prop.hv * 1000;
+  if (!(dT > 0)) throw 'La temperatura del substrato non supera quella di ebollizione: la pozza non bolle';
+  const V = massa_kg / prop.rhol, confinata = area_m2 !== null && area_m2 > 0;
+  const A = confinata ? Math.min(area_m2, V / 0.001) : V / spessore_m;
+  let m = t => 0, te, F0txt;
+  if (sb.k) {
+    const c = 2 * A * sb.k * dT / (hv * Math.sqrt(Math.PI * sb.kappa));      // m(t) = c √t
+    m = t => Math.min(massa_kg, c * Math.sqrt(t)); te = Math.pow(massa_kg / c, 2);
+    F0txt = `conduzione nel substrato (k = ${itn(sb.k, 2)} W/(m K), κ = ${sb.kappa.toExponential(2).replace('.', ',')} m²/s): flusso F = k ΔT / √(π κ t), massa evaporata m(t) = 2 A k ΔT √t / (hv √(π κ))`;
+  } else {
+    const E = 500 * dT * A / hv; m = t => Math.min(massa_kg, E * t); te = massa_kg / E;
+    F0txt = `scambio con l'acqua F = 500 W/(m² K) × ΔT (Webber 1991), costante`;
+  }
+  const Q = m(60) / 60;                                                             // portata massima mediata sul primo minuto
+  const tFine = Math.min(te, 3600), massaEm = m(tFine), dur = Math.max(massaEm / Q, 60);
+  const ipotesi = `Pozza criogenica: ${itn(massa_kg, 0)} kg di liquido refrigerato (${itn(V, 1)} m³) ${confinata ? `in un bacino di ${itn(A, 0)} m²` : `sparsi fino allo spessore di ${itn(spessore_m * 100, 1)} cm (${itn(A, 0)} m²)`}, sopra ${sb.nome}, alla temperatura di ebollizione ${itn(prop.Tb - 273.15, 1)} °C; substrato a ${itn(T_C, 0)} °C (temperatura dell'aria), ΔT = ${itn(dT, 0)} K; ${F0txt} (ALOHA 5.4.4 Tech. Doc. § 3.3.3.3). Evaporazione completa in ${te < 60 ? itn(te, 0) + ' s' : itn(te / 60, 1) + ' min'}${te > 3600 ? ', oltre il limite di 1 h di ALOHA: si considera la massa evaporata nella prima ora' : ''}. Portata di vapore: la media del primo minuto, ${itn(Q, 1)} kg/s (${te <= 60 ? 'tutto il liquido evapora entro il primo minuto, la durata minima di una sorgente in ALOHA § 3.3' : sb.k ? 'la più alta, perché il flusso dal suolo cala nel tempo; un minuto è il passo minimo di ALOHA § 3.3' : 'flusso costante sull\'acqua'}), mantenuta costante fino a emettere ${itn(massaEm, 0)} kg (${itn(dur / 60, 1)} min): scelta cautelativa di Claude. Pozza a area fissa, senza la fase di allargamento; irraggiamento solare e calore sensibile dall'aria trascurati`;
+  return { Q, durata_s: dur, massa_emessa_kg: massaEm, A, te, ipotesi, substrato: sb.nome };
+}
 const X_MAX_GL = 10000;   // limite di calcolo: validità dei coefficienti di Briggs (fino a 10 km)
 const itn = (v, n) => v.toFixed(n).replace('.', ',');
 function gasLiquefatto({ massa_kg, scenario = 'tot', d_mm = 10, h_m = 1, P_bar = null, prop, soglie_ppm, stabilita = 'D', u_ms = 5, T_C = 20, sostanza = '', nota_soglie = '', contenitore = '', generato = null }) {
@@ -395,7 +438,7 @@ function gasLiquefatto({ massa_kg, scenario = 'tot', d_mm = 10, h_m = 1, P_bar =
   const flash = comp ? 0 : Ta > prop.Tb ? 1 - Math.exp(-prop.cpl * (Ta - prop.Tb) / (prop.hv * 1000)) : 0;
   let Q, T_s, Ts_K, ipoSorg, fo = null;
   if (scenario === 'tot') {
-    T_s = generato ? generato.durata_s : 600; Q = massa_kg / T_s; Ts_K = comp ? Ta : Math.min(prop.Tb, Ta);
+    T_s = generato ? generato.durata_s : 600; Q = massa_kg / T_s; Ts_K = generato && generato.T_K ? generato.T_K : comp ? Ta : Math.min(prop.Tb, Ta);
     ipoSorg = generato ? generato.ipotesi : `Rilascio dell'intero contenuto (${massa_kg} kg) come gas in 10 minuti: criterio dello scenario peggiore di 40 CFR 68.25 (EPA, Risk Management Program) per i gas ${comp ? 'compressi' : 'liquefatti sotto pressione'}`;
   } else {
     fo = portataForo({ fase: scenario, d_mm, P_Pa: Psat, T_K: Ta, prop, h_m });
@@ -408,10 +451,19 @@ function gasLiquefatto({ massa_kg, scenario = 'tot', d_mm = 10, h_m = 1, P_bar =
   }
   const durata = T_s;
   // nube sorgente: vapore puro alla temperatura di ebollizione (fase liquida) o ambiente (fase gas)
-  const rho_s = P_ATM * M / (R_GAS * Ts_K), Tp = Ts_K / Ta;
-  const q0 = Q / rho_s, mNube = Math.min(massa_kg, Q * T_s);
-  const pl = bmPennacchio({ q0, rho_s, rho_a, u: u_ms, Tp });
-  const nu = bmNube({ V0: mNube / rho_s, rho_s, rho_a, u: u_ms, Tp });
+  let rho_s = P_ATM * M / (R_GAS * Ts_K), Tp = Ts_K / Ta;
+  const mNube = Math.min(massa_kg, Q * T_s);
+  // aerosol (ammoniaca, V2 21/11/2026): getto bifase che trascina aria secca fino a evaporare tutte le goccioline
+  // (equilibrio omogeneo, CCPS 1999), nube fredda di miscela vapore + aria più pesante dell'aria
+  let aer = null;
+  if (prop.aerosol && !comp && scenario !== 'gas' && flash < 1) aer = miscelaAerosol({ prop, flash, Ta });
+  let q0 = Q / rho_s, V0 = mNube / rho_s, yS = 1;
+  if (aer && aer.rho > rho_a) { rho_s = aer.rho; Tp = aer.T / Ta; q0 = Q * (1 + aer.ma) / rho_s; V0 = mNube * (1 + aer.ma) / rho_s; yS = aer.y; }
+  else aer = aer ? { ...aer, leggera: true } : null;
+  const pl0 = bmPennacchio({ q0, rho_s, rho_a, u: u_ms, Tp });
+  const nu0 = bmNube({ V0, rho_s, rho_a, u: u_ms, Tp });
+  // le curve di Britter-McQuaid danno il rapporto rispetto alla sorgente: con la miscela si moltiplica per la frazione molare y
+  const pl = yS === 1 ? pl0 : { ...pl0, cm: x => pl0.cm(x) * yS }, nu = yS === 1 ? nu0 : { ...nu0, cm: x => nu0.cm(x) * yS };
   // gaussiano passivo, sorgente puntiforme al suolo (Briggs rurale)
   const sig = BRIGGS_RURALE[stabilita];
   const ppmG = x => { const [sy, sz] = sig(x); return Q / (Math.PI * sy * sz * u_ms) / (P_ATM * M / (R_GAS * Ta)) * 1e6; };
@@ -453,6 +505,7 @@ function gasLiquefatto({ massa_kg, scenario = 'tot', d_mm = 10, h_m = 1, P_bar =
     impronta[k] = improntaCurva(cv.f, cv.sy, ppm, x);
     gov[k] = `${n}: ${den ? (x <= xt ? 'gas denso (Britter-McQuaid)' : 'gas denso, poi passivo oltre ' + Math.round(xt) + ' m') : 'gas passivo (gaussiano)'}`;
   }
+  if (aer && !aer.leggera && (pl.denso || nu.denso)) avvisi.push(`Nube con aerosol trattata come gas denso (miscela fredda ${itn(aer.rho, 2)} kg/m³). L'umidità dell'aria, trascurata, condensa e cede calore: la nube reale è un po' meno fredda e meno densa. Con il rilascio in fase gassosa (foro in alto) non si forma aerosol.`);
   if (!pl.denso && !nu.denso) avvisi.push(rho_s < rho_a ? `Il vapore puro (${itn(rho_s, 2)} kg/m³) è più leggero dell'aria (${itn(rho_a, 2)} kg/m³): calcolo con il solo modello gaussiano passivo. Un rilascio bifase con aerosol (tipico dell'ammoniaca) può però formare una nube fredda più pesante dell'aria che resta al suolo.` : 'Criterio di Britter-McQuaid non soddisfatto: nube a comportamento passivo, calcolo con il modello gaussiano');
   if (pl.fuoriCampo || nu.fuoriCampo) avvisi.push('Parametro α di Britter-McQuaid fuori dal campo −1…1 delle correlazioni: risultato del modello di gas denso indicativo');
   if (Object.values(d).some(v => v !== null && !Number.isFinite(v))) avvisi.push('Una o più soglie sono superate oltre 10 km: oltre questa distanza i coefficienti di dispersione di Briggs non sono validati e l\'ipotesi di meteo costante per ore di trasporto non è realistica. Il valore è riportato come "> 10 km": valutare l\'estensione con la Tabella 3 ERG o con modelli specifici.');
@@ -467,6 +520,8 @@ function gasLiquefatto({ massa_kg, scenario = 'tot', d_mm = 10, h_m = 1, P_bar =
       portata_kg_s: +Q.toFixed(3), durata_rilascio_min: +(durata / 60).toFixed(1), massa_kg: massa_kg,
       ...(generato ? {} : { [comp ? 'pressione_bar' : 'tensione_vapore_bar']: +(Psat / 1e5).toFixed(2) }), ...(comp ? {} : { frazione_flash: +flash.toFixed(3) }),
       densita_nube_kg_m3: +rho_s.toFixed(2), densita_aria_kg_m3: +rho_a.toFixed(2),
+      ...(aer && !aer.leggera ? { aria_trascinata_kg_kg: +aer.ma.toFixed(2), temperatura_miscela_C: +(aer.T - 273.15).toFixed(1), frazione_molare_miscela: +aer.y.toFixed(3) } : {}),
+      ...(generato && generato.T_K ? { temperatura_vapore_C: +(generato.T_K - 273.15).toFixed(1) } : {}),
       criterio_BM_continuo: +pl.criterio.toFixed(3), criterio_BM_istantaneo: +nu.criterio.toFixed(3),
       ...Object.fromEntries(Object.keys(soglie_ppm).map(k => ['modello_' + k, gov[k]]))
     },
@@ -474,7 +529,8 @@ function gasLiquefatto({ massa_kg, scenario = 'tot', d_mm = 10, h_m = 1, P_bar =
       contenitore,
       ipoSorg,
       comp ? '' : `Frazione di flash ${itn(flash * 100, 1)}% (bilancio adiabatico CCPS 1999); si assume tutto il rilasciato in aria come vapore e aerosol, senza ricaduta di liquido al suolo (cautelativo)`,
-      `Nube alla sorgente: vapore puro a ${itn(Ts_K - 273.15, 1)} °C, densità ${itn(rho_s, 2)} kg/m³ contro ${itn(rho_a, 2)} kg/m³ dell'aria; correzione non isoterma di Britter-McQuaid`,
+      aer && !aer.leggera ? `Nube alla sorgente con aerosol: il getto bifase (vapore di flash ${itn(flash * 100, 1)}% e goccioline) trascina ${itn(aer.ma, 2)} kg di aria per kg di ${prop.nome || 'sostanza'} fino a evaporare tutte le goccioline; miscela a ${itn(aer.T - 273.15, 1)} °C con frazione molare ${itn(aer.y * 100, 1)}%, densità ${itn(aer.rho, 2)} kg/m³ contro ${itn(rho_a, 2)} kg/m³ dell'aria. Modello di equilibrio omogeneo (CCPS, Guidelines for Use of Vapor Cloud Dispersion Models 1996 e Guidelines for Consequence Analysis 1999): aria secca, nessuna ricaduta di liquido al suolo, tensione di vapore sotto −20 °C da Clausius-Clapeyron a partire dall'ebollizione, calore specifico del vapore ${prop.cpv} J/(kg K) (CoolProp). Britter-McQuaid alimentato con la portata e il volume della miscela; le concentrazioni sono riportate alla sola sostanza (scelta di Claude del 21/11/2026)`
+        : `Nube alla sorgente: vapore puro a ${itn(Ts_K - 273.15, 1)} °C, densità ${itn(rho_s, 2)} kg/m³ contro ${itn(rho_a, 2)} kg/m³ dell'aria; correzione non isoterma di Britter-McQuaid${aer ? `. Con l'aerosol la miscela con l'aria (${itn(aer.rho, 2)} kg/m³ a ${itn(aer.T - 273.15, 1)} °C) non risulta più pesante dell'aria: si usa il vapore puro` : ''}`,
       'Gas denso: correlazioni di Britter e McQuaid (Workbook on the Dispersion of Dense Gases, HSE 1988) nella forma di AIChE/CCPS (1999), terreno piano senza ostacoli, concentrazioni medie su 10 min, vento a 10 m; il modello non dipende dalla classe di stabilità',
       `Durata finita del rilascio (${itn(durata / 60, 1)} min): la concentrazione non supera né quella del pennacchio stazionario con la stessa portata né quella della nube istantanea con la stessa massa; per ciascun modello si adotta il minore dei due risultati`,
       `Oltre la fine delle curve di Britter-McQuaid (rapporto di concentrazione 0,002) la nube è trattata come passiva: modello gaussiano con sorgenti virtuali scelte in modo che, nel punto di passaggio, larghezza della nube e concentrazione siano quelle del modello di gas denso, classe ${stabilita}, vento ${u_ms} m/s; pennacchio con coefficienti di Briggs (rurale), nube istantanea con coefficienti CCPS 1999 (concentrazione di picco). Se il criterio di gas denso non è soddisfatto si usa solo il modello gaussiano con sorgente puntiforme al suolo`,
@@ -725,6 +781,6 @@ function gaussianoMeteo(param, meteo = METEO_PREDEFINITO) {
   });
 }
 
-const api = { BRIGGS_RURALE, SOGLIE, METEO_PREDEFINITO, poolFire, bleve, gaussiano, gaussianoMeteo, controllaMeteo, tnt, kingeryBulmash_bar, kinneyGraham_bar, fattoreVistaCilindro, evaporazioneEPA, gasLiquefatto, gasLiquefattoMeteo, jetFire, flashFire, flashFireMeteo, vce, vceMeteo, fumiIncendio, innalzamento, qdDoD, bmPennacchio, bmNube, portataForo, psatBar, pozzaDaForo, bleveOnda };
+const api = { BRIGGS_RURALE, SUBSTRATI, pozzaCriogenica, miscelaAerosol, SOGLIE, METEO_PREDEFINITO, poolFire, bleve, gaussiano, gaussianoMeteo, controllaMeteo, tnt, kingeryBulmash_bar, kinneyGraham_bar, fattoreVistaCilindro, evaporazioneEPA, gasLiquefatto, gasLiquefattoMeteo, jetFire, flashFire, flashFireMeteo, vce, vceMeteo, fumiIncendio, innalzamento, qdDoD, bmPennacchio, bmNube, portataForo, psatBar, pozzaDaForo, bleveOnda };
 if (typeof module !== 'undefined') module.exports = api;
 if (typeof window !== 'undefined') window.MotoreAree = api;

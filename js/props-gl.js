@@ -19,9 +19,9 @@
       fonte: `proprietà fisiche ${HEOS}; LC50 ratto 293 ppm 1 h (${IDLHDOC}, Back et al. 1972); IDLH 10 ppm (NIOSH)` },
     '1005': { modelli: ['GL', 'ERG'], nome: 'ammoniaca anidra', pm: 17.031, Tb: 239.83, hv: 1369.7, cpl: 4602, rhol: 610, gam: 1.307,
       ps: { '-20': 1.900, '-10': 2.906, 0: 4.292, 10: 6.148, 20: 8.570, 30: 11.665, 40: 15.545, 50: 20.330 },
-      LC50: 20300, LC50_t: '40 min', IDLH: 300, LOC: 30,
-      fonte: `proprietà fisiche ${HEOS}; LC50 ratto 20 300 ppm 40 min (${IDLHDOC}, Alarie 1981: a pari distanza da 30 min fra 20 e 40 min si prende il valore più basso); IDLH 300 ppm (NIOSH)`,
-      avviso: 'Ammoniaca: il vapore puro è più leggero dell\'aria, ma il getto bifase da recipiente in pressione forma una nube fredda con aerosol che può restare al suolo come un gas denso. Il modello gaussiano usato qui non rappresenta questo comportamento nel campo vicino: considerare anche le distanze della Tabella 3 ERG.' },
+      LC50: 20300, LC50_t: '40 min', IDLH: 300, LOC: 30, aerosol: true, cpv: 2180,
+      fonte: `proprietà fisiche ${HEOS} (calore specifico del vapore 2,18 kJ/(kg K) fra −40 e 20 °C a 1 atm); LC50 ratto 20 300 ppm 40 min (${IDLHDOC}, Alarie 1981: a pari distanza da 30 min fra 20 e 40 min si prende il valore più basso); IDLH 300 ppm (NIOSH)`,
+      avviso: 'Ammoniaca: il vapore puro è più leggero dell\'aria, ma il getto bifase da recipiente in pressione forma una nube fredda con aerosol che resta al suolo come un gas denso. Per il rilascio totale e il foro in fase liquida il calcolo segue la miscela di aerosol e aria (equilibrio omogeneo); per il foro in fase gassosa il vapore è trattato come gas leggero. Confrontare sempre con la Tabella 3 ERG.' },
     '1052': { modelli: ['GL', 'ERG'], nome: 'acido fluoridrico anidro', pm: 20.006, Tb: 292.6, hv: 376.8, cpl: 3043, rhol: 1000, gam: 1.399,
       ps: { '-20': 0.268, '-10': 0.391, 0: 0.556, 10: 0.770, 20: 1.044, 30: 1.406, 40: 1.898, 50: 2.555 },
       LC50: 1276, LC50_t: '1 h', IDLH: 30, LOC: 3,
@@ -46,6 +46,13 @@
     d.propsGL = true;
     if (DATA.bleveTab && DATA.bleveTab[u]) { d.modelli = ['GL', 'BT', 'ERG']; }
   }
+  // UN 2186 acido cloridrico refrigerato (V2 21/11/2026): pozza criogenica bollente a −85 °C, stesse soglie di UN 1050
+  { const d = DATA.db['2186'];
+    DATA.props['2186'] = { ...P['1050'], nome: 'acido cloridrico refrigerato (cloruro di idrogeno liquido)', criogenico: true, solubile: true, rhol: 1185, modelli: ['GL', 'ERG'],
+      contCrio: [['cist', 'Cisterna criogenica / tank-container', 20000], ['altro', 'Altro recipiente criogenico', 1000]],
+      fonte: `proprietà fisiche ${HEOS} (ebollizione −85,0 °C a 1 atm, entalpia di vaporizzazione 443,8 kJ/kg, densità del liquido 1185 kg/m³ all'ebollizione; NIOSH Pocket Guide 2005-149: ebollizione −121 °F = −85 °C); LC50 ratto 3124 ppm 1 h (${IDLHDOC}, MacEwen e Vernot 1974); IDLH 50 ppm (NIOSH)`,
+      avviso: 'Acido cloridrico refrigerato: il liquido bolle a −85 °C e forma una pozza che evapora rapidamente; con l\'umidità dell\'aria il vapore forma una nebbia acida più pesante dell\'aria. Sull\'acqua l\'HCl si scioglie con forte sviluppo di calore: il modello della pozza galleggiante non si applica e il calcolo è previsto solo sul terreno.' };
+    if (d) { d.modelli = ['GL', 'ERG']; d.modello = 'GL'; d.propsGL = true; } }
   // UN 1791 soluzione di ipoclorito: sviluppo di cloro a contatto con acidi (V2, 20/11/2026)
   // stesse proprietà e soglie del cloro UN 1017; massa di cloro dal cloro attivo (g/L) della soluzione
   const d1791 = DATA.db['1791'];
