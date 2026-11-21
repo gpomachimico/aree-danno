@@ -128,10 +128,13 @@ function evaporazioneEPA({ area_m2, u_ms, pm, Pv_kPa, T_K }) {
 // la pozza si allarga con lo spessore minimo (EPA OCA 1999: 1 cm) fino al bacino, se c'è.
 // Bilancio: dV/dt = portata/ρ − (evaporazione/ρ, solo per liquidi puri); A = min(V/h, A_bacino); evaporazione = k·A.
 // Si prende come emissione costante quella massima, raggiunta alla fine della perdita o all'equilibrio.
-function pozzaDaForo({ volume_m3, rho, frazione = 1, d_mm, h_m, area_bacino = null, spessore_m = 0.01, k }) {
+// decrescente (V2 21/11/2026): recipiente a sezione costante con il foro sul fondo che si svuota (Torricelli):
+// la portata cala linearmente nel tempo, m(t) = m0 (1 − t/td), con td = 2 M / m0 (il doppio della durata a battente costante)
+function pozzaDaForo({ volume_m3, rho, frazione = 1, d_mm, h_m, area_bacino = null, spessore_m = 0.01, k, decrescente = false }) {
   const Ah = Math.PI * Math.pow(d_mm / 1000, 2) / 4;
-  const mL = 0.61 * Ah * rho * Math.sqrt(2 * G0 * h_m);              // kg/s
-  const M = volume_m3 * rho, tr = M / mL;
+  const mL = 0.61 * Ah * rho * Math.sqrt(2 * G0 * h_m);              // kg/s, portata iniziale
+  const M = volume_m3 * rho, tr = decrescente ? 2 * M / mL : M / mL;
+  const mLt = t => decrescente ? mL * Math.max(1 - t / tr, 0) : mL;
   const Alim = area_bacino ?? Infinity;
   const A_eq = mL * frazione / k;                                     // area a cui l'evaporazione eguaglia l'afflusso di sostanza tossica
   let V = 0, t = 0, Amax = 0, tA = 0;
@@ -139,14 +142,16 @@ function pozzaDaForo({ volume_m3, rho, frazione = 1, d_mm, h_m, area_bacino = nu
   for (let i = 0; i < n; i++) {
     const A = Math.min(V / spessore_m, Alim);
     const E = k * A;
-    V += (mL - (frazione === 1 ? E : 0)) / rho * dt;
+    V += (mLt(t + dt / 2) - (frazione === 1 ? E : 0)) / rho * dt;
     t += dt;
     const A2 = Math.min(Math.max(V, 0) / spessore_m, Alim);
     if (A2 > Amax * 1.0001) { Amax = A2; tA = t; }
   }
   const limite = Amax >= Alim * 0.999 ? 'bacino' : Amax >= A_eq * 0.97 ? 'equilibrio' : 'fine';
   const ipotesi = [
-    `Perdita continua da foro di ${d_mm} mm in recipiente a pressione atmosferica, battente di liquido ${itn(h_m, 1)} m: portata di Bernoulli ${itn(mL, 3)} kg/s (Cd 0,61, battente costante: portata iniziale, cautelativa); durata della perdita ${itn(tr / 60, 0)} min`,
+    decrescente
+      ? `Perdita continua da foro di ${d_mm} mm sul fondo di un recipiente a pressione atmosferica, battente iniziale ${itn(h_m, 1)} m: portata di Bernoulli iniziale ${itn(mL, 3)} kg/s (Cd 0,61). Battente decrescente: recipiente a sezione orizzontale costante che si svuota (Torricelli), la portata cala linearmente fino a zero e la durata della perdita è doppia rispetto alla portata costante, ${itn(tr / 60, 0)} min. Fusti orizzontali, cisterne cilindriche coricate e IBC con fondo inclinato si svuotano in modo un po' diverso (scelta di Claude, opzione)`
+      : `Perdita continua da foro di ${d_mm} mm in recipiente a pressione atmosferica, battente di liquido ${itn(h_m, 1)} m: portata di Bernoulli ${itn(mL, 3)} kg/s (Cd 0,61, battente costante: portata iniziale, cautelativa); durata della perdita ${itn(tr / 60, 0)} min`,
     `Pozza che si allarga fino allo spessore di ${String(spessore_m * 100).replace('.', ',')} cm (${spessore_m < 0.008 ? 'ALOHA 5.4.4, § 3.4.4.2, Briscoe e Shaw 1980' : 'EPA OCA 1999'})${area_bacino ? `, fino al bacino di ${area_bacino} m²` : ', senza bacino'}; area massima ${itn(Amax, 1)} m² raggiunta dopo ${itn(tA / 60, 0)} min (${{ bacino: 'limitata dal bacino', equilibrio: 'equilibrio tra afflusso ed evaporazione', fine: 'fine della perdita' }[limite]})`,
     'Emissione costante pari all\'evaporazione massima della pozza (cautelativo: prima di raggiungerla l\'emissione è minore)'
   ];
@@ -158,7 +163,7 @@ function gaussiano({ volume_m3, densita_soluzione, frazione_tossico = 1, pm, Pv_
   const massaTossico = volume_m3 * densita_soluzione * 1000 * frazione_tossico;
   let A, Q, durata_min, pz = null;
   if (foro) {
-    pz = pozzaDaForo({ volume_m3, rho: densita_soluzione * 1000, frazione: frazione_tossico, d_mm: foro.d_mm, h_m: foro.h_m,
+    pz = pozzaDaForo({ volume_m3, rho: densita_soluzione * 1000, frazione: frazione_tossico, d_mm: foro.d_mm, h_m: foro.h_m, decrescente: !!foro.decrescente,
       area_bacino: area_m2, spessore_m, k: evaporazioneEPA({ area_m2: 1, u_ms, pm, Pv_kPa, T_K }) });
     A = pz.A_max; Q = pz.E_max; durata_min = pz.t_rilascio_s / 60;
   } else {

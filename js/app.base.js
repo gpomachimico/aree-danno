@@ -179,11 +179,13 @@ function buildFields() {
       <p class="small">Scenario: la soluzione di ipoclorito viene a contatto con un acido (miscelazione accidentale, spandimento in un bacino comune, carico incompatibile) e libera cloro gassoso. Il cloro attivo si legge sulla scheda di sicurezza: se è indicato in % in peso, g/L = % × 10 × densità (circa 1,2). Valore proposto 150 g/L (soluzione commerciale al 12,5–15%). Con 100% si assume acido in eccesso (cautelativo).</p>
       <p class="small">Soglie del cloro: LC50 ${p.LC50} ppm (ratto, ${p.LC50_t}) · IDLH ${p.IDLH} ppm · LOC ${p.LOC} ppm. Clorammine: valori PAC del DOE (nessun IDLH NIOSH).</p>`;
   } else if (m === 'W2') {
+    const nosF = p.nos ? `<div class="row"><div><label for="formW">Formula del clorosilano (nome tecnico)</label><input id="formW" type="text" autocapitalize="off" spellcheck="false" value="${p.formula}" placeholder="es. CH3Cl3Si"></div>${f('nclW', 'Atomi di Cl legati al silicio per molecola', 3, 'min="1" max="8"')}</div>
+      <p class="small">Voce n.o.s.: inserire la formula del clorosilano indicato come nome tecnico. Il cloro su un anello aromatico (clorofenil-) non si idrolizza: contare solo il Cl legato al Si. Proposto il triclorosilano HSiCl3.</p>` : '';
     const prod = p.prodotti.map(x => `${DATA.gasW2[x.gas].nome}: ${itn2(+x.resa.toFixed(3))} kg per kg (${itn2(x.n)} mol per mole)`).join('; ');
     h = `<label for="imbW">Imballaggio</label><select id="imbW"><option value="25">Collo 25 kg</option><option value="250" selected>Fusto 250 kg</option><option value="1000">IBC 1000 kg</option><option value="20000">Cisterna 20 000 kg</option><option value="0">Altro (inserisci massa)</option></select>
       <div class="row">${f('massaW', 'Massa che reagisce con l\'acqua (kg)', 250)}${f('titW', 'Titolo della sostanza nel prodotto (%)', 100, 'min="1" max="100"')}</div>
       <div class="row">${f('ariaW', 'Quota del gas che passa in aria (%)', 100, 'min="1" max="100"')}${f('durW', 'Durata dello sviluppo del gas (min)', 10, 'min="1" max="240"')}</div>
-      <p class="small">Sostanza: ${p.nome} (${p.formula}, M = ${itn2(+p.pm.toFixed(2))} g/mol). Gas prodotti con l'acqua secondo la Tabella 2 ERG, resa stechiometrica: ${prod}.</p>
+      ${nosF}<p class="small">Sostanza: ${p.nome} (${p.formula}, M = ${itn2(+p.pm.toFixed(2))} g/mol). Gas prodotti con l'acqua secondo la Tabella 2 ERG, resa stechiometrica${p.nos ? ' (per la formula proposta)' : ''}: ${prod}.</p>
       <p class="small">Con il 100% tutto il gas va in aria: limite superiore cautelativo. HCl, HF, HBr e NH3 sono molto solubili e, se lo spandimento avviene in molta acqua (mare, fiume), gran parte resta disciolta. La Tabella 2 ERG resta il riferimento di primo intervento.</p>`;
   } else if (m === 'BT') {
     const op = contenitoriGL(), def = op.find(o => o[0] === 'ton') || op[0], p50 = p.ps && p.ps[50] ? p.ps[50] : 15;
@@ -256,6 +258,7 @@ function campiForo() {
   return `<label for="spesL">Spessore minimo della pozza non confinata</label><select id="spesL"><option value="0.01" selected>1 cm – EPA, Offsite Consequence Analysis Guidance (1999) – predefinito</option><option value="0.005">0,5 cm – ALOHA 5.4.4 Technical Documentation, § 3.4.4.2 (Briscoe e Shaw 1980): pozza più estesa, distanze maggiori</option></select>
     <label for="rilL">Tipo di rilascio</label><select id="rilL"><option value="ist">Spandimento istantaneo di tutto il volume</option><option value="foro">Perdita continua da foro</option></select>
     <div id="foroBox" class="hide"><div class="row">${f('dforoL', 'Diametro del foro (mm)', 25, 'min="1" max="300"')}${f('battL', 'Battente di liquido sopra il foro (m)', 1)}</div>
+    <label for="battT">Andamento del battente</label><select id="battT"><option value="cost" selected>Costante – portata iniziale per tutta la perdita (cautelativo, predefinito)</option><option value="decr">Decrescente – il recipiente si svuota e la portata cala (Torricelli, sezione costante, foro sul fondo)</option></select>
     <p class="small">Perdita da recipiente a pressione atmosferica (fusto, IBC, cisterna). La pozza si allarga mentre il liquido esce; l'area è limitata dal bacino, se indicato. Battenti proposti: fusto 0,8 m, IBC 1 m, cisterna 2 m.</p></div>`;
 }
 function bindForo() {
@@ -269,7 +272,7 @@ function leggiForo() {
   const d = num('dforoL'), h = num('battL');
   if (!d || d <= 0 || d > 300) throw 'Diametro del foro fuori campo (1–300 mm)';
   if (!h || h <= 0 || h > 10) throw 'Battente fuori campo (0–10 m)';
-  return { d_mm: d, h_m: h };
+  return { d_mm: d, h_m: h, decrescente: $('battT') && $('battT').value === 'decr' };
 }
 
 // ---------- gas tossici liquefatti (V2, gruppo 1) ----------
@@ -579,7 +582,8 @@ function interpLog(tab, c) { const k = Object.keys(tab).map(Number).sort((a, b) 
 function interpLin(tab, c) { const k = Object.keys(tab).map(Number).sort((a, b) => a - b); c = Math.min(Math.max(c, k[0]), k[k.length - 1]); for (let i = 0; i < k.length - 1; i++) if (c <= k[i + 1]) { const a = k[i], b = k[i + 1]; return tab[a] + (tab[b] - tab[a]) * (c - a) / (b - a); } return tab[k[k.length - 1]]; }
 
 $('calc').onclick = () => {
-  const m = cur.modello, p = DATA.props[cur.u] || {}, sost = `UN ${cur.u} ${cur.psn}`;
+  let p = DATA.props[cur.u] || {};
+  const m = cur.modello, sost = `UN ${cur.u} ${cur.psn}`;
   risultati = []; tabSel = 0;
   try {
     if (p.criogenico && ['GL', 'FF', 'VCE', 'PF'].includes(m)) {
@@ -668,6 +672,14 @@ $('calc').onclick = () => {
         : 'Clorammine: la specie reale dipende da pH e rapporto cloro/ammoniaca e spesso è una miscela; valutare anche le altre specie e lo scenario con acido. ' + (sp === 'NH2Cl' ? 'La monoclorammina è molto solubile: il 100% in aria è un limite superiore.' : sp === 'NCl3' ? 'Il tricloruro di azoto è instabile e può decomporsi in modo esplosivo.' : '');
       risultati.forEach(r => { r.avvisi = [avv, ...(r.avvisi || [])]; if (rif) r.soglieRif = rif; });
     } else if (m === 'W2') {
+      if (p.nos) {
+        const fo = ($('formW').value || '').trim().replace(/\s+/g, ''), ncl = num('nclW');
+        if (!/^([A-Z][a-z]?\d*)+$/.test(fo) || !/Si/.test(fo) || !/Cl/.test(fo)) throw 'Formula del clorosilano non valida (es. CH3Cl3Si, con Si e Cl)';
+        let pmF; try { pmF = DATA.pmFormula(fo); } catch (e) { throw 'Formula: ' + e + ' non previsto'; }
+        const nTot = [...fo.matchAll(/Cl(\d*)/g)].reduce((a, x) => a + (x[1] ? +x[1] : 1), 0);
+        if (!ncl || ncl < 1 || ncl > nTot) throw `Atomi di Cl legati al silicio fuori campo (1–${nTot} per questa formula)`;
+        p = { ...p, nome: `clorosilano n.o.s., nome tecnico con formula ${fo} (inserita dall'utente)`, formula: fo, pm: pmF, prodotti: [{ gas: 'HCl', n: ncl, resa: ncl * DATA.gasW2.HCl.pm / pmF }] };
+      }
       const ms = num('massaW'), tit = num('titW') ?? 100, aria = num('ariaW') ?? 100, dur = num('durW') ?? 10;
       if (!ms || ms <= 0) throw 'Inserire la massa';
       if (tit <= 0 || tit > 100 || aria <= 0 || aria > 100) throw 'Percentuali fuori campo (1–100%)';

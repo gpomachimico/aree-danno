@@ -15,6 +15,7 @@
     H2S: { nome: 'acido solfidrico (H2S)', pm: 34.08, LC50: 713, LC50_t: '1 h', IDLH: 100, LOC: 10, fonte: `LC50 ratto 713 ppm 1 h (${IDLHDOC}, Back et al. 1972); IDLH 100 ppm (NIOSH)` },
     PH3: { nome: 'fosfina (PH3)', pm: 33.998, LC50: 11, LC50_t: '4 h', IDLH: 50, LOC: 5, fonte: `LC50 ratto 11 ppm 4 h (${IDLHDOC}, Waritz e Brown 1975; unico dato LC50 sul ratto, per questo minore dell'IDLH); IDLH 50 ppm (NIOSH)` },
     NH3: { nome: 'ammoniaca (NH3)', pm: 17.031, LC50: P['1005'].LC50, LC50_t: P['1005'].LC50_t, IDLH: P['1005'].IDLH, LOC: P['1005'].LOC, fonte: 'soglie della voce UN 1005' },
+    NO2: { nome: 'biossido di azoto (NO2)', pm: 46.006, LC50: 138, LC50_t: '30 min', IDLH: 13, LOC: 1.3, fonte: `LC50 ratto 138 ppm 30 min (${IDLHDOC}, Gray et al. 1954); IDLH 13 ppm (NIOSH IDLH Value Profile 2017-202 e Pocket Guide; il valore del 1994 era 20 ppm)` },
     HCN: { nome: 'acido cianidrico (HCN)', pm: 27.026, LC50: 160, LC50_t: '30 min', IDLH: 50, LOC: 5, fonte: `LC50 ratto 160 ppm 30 min (${IDLHDOC}, Levin et al. 1987); IDLH 50 ppm (NIOSH)` }
   };
   // UN: [formula di calcolo, nome, [[gas, moli di gas per mole]], nota]
@@ -58,6 +59,8 @@
     '1432': ['Na3P', 'fosfuro di sodio', [['PH3', 1]]], '2011': ['Mg3P2', 'fosfuro di magnesio', [['PH3', 2]]],
     '2012': ['K3P', 'fosfuro di potassio', [['PH3', 1]]], '2013': ['Sr3P2', 'fosfuro di stronzio', [['PH3', 2]]],
     '1390': ['NaNH2', 'ammidi di metalli alcalini, calcolo come sodio ammide', [['NH3', 1]]],
+    // aggiunte del 21/11/2026 (V2, liquidi tossici)
+    '2308': ['HNO5S', 'acido nitrosilsolforico (NOHSO4 + H2O → H2SO4 + HNO2; l\'acido nitroso si decompone in NO, NO2 e HNO3 e l\'NO si ossida a NO2 in aria: tutto l\'azoto contato come NO2, 1 mol per mole, limite superiore)', [['NO2', 1]], 'nitros'],
     '2004': ['MgN2H4', 'magnesio diammide', [['NH3', 2]]], '2806': ['Li3N', 'nitruro di litio', [['NH3', 1]]],
     '1680': ['KCN', 'cianuro di potassio', [['HCN', 1]], 'cian'], '1689': ['NaCN', 'cianuro di sodio', [['HCN', 1]], 'cian'],
     '2977': ['UF6', 'esafluoruro di uranio (UF6 + 2 H2O → UO2F2 + 4 HF)', [['HF', 4]], 'rad'],
@@ -66,6 +69,7 @@
   };
   const NOTE = {
     cian: 'Cianuri: in acqua neutra l\'idrolisi è lenta e solo una parte del cianuro si libera come HCN; con acidi il rilascio è rapido e completo. Il 100% proposto vale per il contatto con acidi ed è molto cautelativo per lo spandimento in acqua.',
+    nitros: 'Acido nitrosilsolforico: il prodotto commerciale è di solito una soluzione in acido solforico; indicare nel campo "titolo" la percentuale di NOHSO4 della scheda di sicurezza. La resa di 1 mol di NO2 per mole è un limite superiore: una parte dell\'azoto resta in soluzione come acido nitrico o esce come NO, meno tossico (IDLH 100 ppm).',
     rad: 'Esafluoruro di uranio: il calcolo riguarda solo l\'HF; la tossicità chimica dell\'uranio (UO2F2) e il rischio radiologico non sono valutati.'
   };
   for (const [u, [form, nome, gas, nota]] of Object.entries(T)) {
@@ -75,6 +79,15 @@
     const d = DATA.db[u];
     if (d) { d.modelli = P[u].modelli; d.modello = 'W2'; }
   }
+  // clorosilani n.o.s. (21/11/2026): formula del nome tecnico inserita dall'utente, HCl = atomi di Cl legati al silicio
+  for (const u of ['2985', '2986', '2987', '2988']) {
+    const form = 'HCl3Si', pm = pmFormula(form);
+    P[u] = { modelli: ['W2', 'ERG'], nos: true, nome: 'clorosilano n.o.s.', formula: form, pm, prodotti: [{ gas: 'HCl', n: 3, resa: 3 * GAS.HCl.pm / pm }],
+      avviso: 'Clorosilani n.o.s.: il calcolo usa la formula del nome tecnico indicata (documento di trasporto o scheda di sicurezza). In mancanza del nome tecnico si propone il triclorosilano, fra i clorosilani più comuni quello con la resa in HCl per kg fra le più alte (cautelativo; solo il tetracloruro di silicio rende di più).' };
+    const d = DATA.db[u];
+    if (d) { d.modelli = P[u].modelli; d.modello = 'W2'; }
+  }
+  DATA.pmFormula = pmFormula;
   DATA.gasW2 = GAS;
   // clorammine dall'ipoclorito (UN 1791) a contatto con ammoniaca: valori PAC del DOE (in mancanza di IDLH NIOSH)
   const PAC = 'DOE PAC Database (Protective Action Criteria)';
