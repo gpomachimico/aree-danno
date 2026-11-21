@@ -73,47 +73,42 @@ $('btnGPS').onclick = () => {
 };
 initMappa();
 
-// ---------- meteo attuale da servizio (Open-Meteo) e classe di stabilità con il metodo di Turner (V2, 21/11/2026) ----------
-// Classe di Pasquill-Gifford: metodo di Turner come nel PCRAMMET User's Guide (EPA-454/B-96-001, Tabelle 4-1 e 4-2).
-const TURNER = [ // righe: vento in nodi 1..12+; colonne: forte, moderata, lieve, debole insolazione, coperto basso, notte ≥5/10, notte <5/10
-  null, [1, 1, 2, 3, 4, 6, 7], [1, 2, 2, 3, 4, 6, 7], [1, 2, 2, 3, 4, 6, 7], [1, 2, 3, 4, 4, 5, 6], [1, 2, 3, 4, 4, 5, 6], [2, 2, 3, 4, 4, 5, 6],
-  [2, 2, 3, 4, 4, 4, 5], [2, 3, 3, 4, 4, 4, 5], [2, 3, 3, 4, 4, 4, 5], [3, 3, 4, 4, 4, 4, 5], [3, 3, 4, 4, 4, 4, 4], [3, 4, 4, 4, 4, 4, 4]];
-function elevazioneSole(lat, lon, d) {           // gradi; formule NOAA semplificate (precisione circa 1°)
-  const rad = Math.PI / 180, g = 2 * Math.PI / 365 * (Math.floor((d - Date.UTC(d.getUTCFullYear(), 0, 0)) / 864e5) - 1 + (d.getUTCHours() - 12) / 24);
-  const decl = 0.006918 - 0.399912 * Math.cos(g) + 0.070257 * Math.sin(g) - 0.006758 * Math.cos(2 * g) + 0.000907 * Math.sin(2 * g) - 0.002697 * Math.cos(3 * g) + 0.00148 * Math.sin(3 * g);
-  const eqt = 229.18 * (0.000075 + 0.001868 * Math.cos(g) - 0.032077 * Math.sin(g) - 0.014615 * Math.cos(2 * g) - 0.040849 * Math.sin(2 * g));
-  const tst = d.getUTCHours() * 60 + d.getUTCMinutes() + eqt + 4 * lon, ha = (tst / 4 - 180) * rad;
-  const cz = Math.sin(lat * rad) * Math.sin(decl) + Math.cos(lat * rad) * Math.cos(decl) * Math.cos(ha);
-  return 90 - Math.acos(Math.max(-1, Math.min(1, cz))) / rad;
+// ---------- meteo attuale da servizio (Open-Meteo) e classe di stabilità con il metodo di ALOHA (V2, 21/11/2026) ----------
+// ALOHA 5.4.4 Technical Documentation (NOAA, fornita da Luca), § 4.2.1: Tabella 10 (vento a 10 m × insolazione o copertura notturna),
+// insolazione da Raphael (1962) Fs = 1111·(1 − 0,0071·CI²)·(sin φ − 0,1), soglie 851 / 526 / 176 W/m²; notte da 1 h prima del tramonto
+// a 1 h dopo l'alba; con più classi possibili la più stabile; D con cielo completamente coperto, di giorno e di notte.
+function elevazioneSole(lat, lon, d) {           // gradi, formule di ALOHA § 4.2.1
+  const rad = Math.PI / 180, J = Math.floor((d - Date.UTC(d.getUTCFullYear(), 0, 0)) / 864e5), Z = d.getUTCHours() + d.getUTCMinutes() / 60;
+  const decl = 23.45 * rad * Math.sin(0.986 * (J - 80) * rad), hs = 15 * (12 - Z - lon / 15) * rad;
+  const s = Math.sin(lat * rad) * Math.sin(decl) + Math.cos(lat * rad) * Math.cos(decl) * Math.cos(hs);
+  return Math.asin(Math.max(-1, Math.min(1, s))) / rad;
 }
-function classeTurner({ u_ms, elev, cc, low, mid }) {
-  const kn = Math.max(1, Math.min(12, Math.round(u_ms * 1.94384))), C = cc / 10;   // copertura in decimi
-  const soffitto = low >= 50 ? 'basso' : mid >= 50 ? 'medio' : 'alto';            // approssimazione dai tre strati di Open-Meteo
-  let col, desc;
-  if (C >= 10 && soffitto === 'basso') { col = 4; desc = 'cielo coperto con nubi basse: neutra'; }
-  else if (elev <= 0) { col = C >= 5 ? 5 : 6; desc = `notte, copertura ${C >= 5 ? '≥' : '<'} 5/10`; }
-  else {
-    let ni = elev > 60 ? 4 : elev > 35 ? 3 : elev > 15 ? 2 : 1;
-    if (C > 5 && C < 10) ni -= soffitto === 'basso' ? 2 : soffitto === 'medio' ? 1 : 0;
-    else if (C >= 10) ni -= soffitto === 'medio' ? 2 : 1;
-    ni = Math.max(ni, 1);
-    col = 4 - ni; desc = `giorno, elevazione del sole ${Math.round(elev)}°, insolazione ${['forte', 'moderata', 'lieve', 'debole'][col]}`;
-  }
-  const n = TURNER[kn][col], cl = 'ABCDEFF'[n - 1];
-  return { classe: cl, n, kn, desc: desc + `, copertura ${Math.round(cc)}% (bassa ${Math.round(low)}%, media ${Math.round(mid)}%), soffitto stimato ${soffitto === 'basso' ? 'sotto 7000 ft' : soffitto === 'medio' ? 'tra 7000 e 16 000 ft' : 'sopra 16 000 ft'}, vento ${kn} nodi` + (n === 7 ? '; classe G trattata come F' : '') };
+const ALOHA_T10 = [ // righe: vento a 10 m < 2, 2–3, 3–5, 5–6, > 6 m/s; colonne: forte, moderata, lieve, notte > 50%, notte < 50%
+  ['A', 'B', 'B', 'E', 'F'], ['B', 'B', 'C', 'E', 'F'], ['B', 'C', 'C', 'D', 'E'], ['C', 'D', 'D', 'D', 'D'], ['C', 'D', 'D', 'D', 'D']];
+const ALOHA_T10_TXT = [['A', 'A–B', 'B', 'E', 'F'], ['A–B', 'B', 'C', 'E', 'F'], ['B', 'B–C', 'C', 'D', 'E'], ['C', 'C–D', 'D', 'D', 'D'], ['C', 'D', 'D', 'D', 'D']];
+function classeAloha({ u_ms, lat, lon, t, cc }) {
+  const CI = Math.round(cc / 10), el = elevazioneSole(lat, lon, t), h = 3600e3;
+  const notte = el <= 0 || elevazioneSole(lat, lon, new Date(t - h)) <= 0 || elevazioneSole(lat, lon, new Date(+t + h)) <= 0;
+  const riga = u_ms < 2 ? 0 : u_ms < 3 ? 1 : u_ms < 5 ? 2 : u_ms <= 6 ? 3 : 4;
+  const f1 = v => String(+v.toFixed(1)).replace('.', ',');
+  if (CI >= 10) return { classe: 'D', desc: `cielo completamente coperto (copertura ${Math.round(cc)}%, indice di nuvolosità 10/10): classe D, di giorno e di notte`, el };
+  if (notte) { const c = cc > 50 ? 3 : 4; return { classe: ALOHA_T10[riga][c], desc: `notte (da 1 h prima del tramonto a 1 h dopo l'alba), copertura ${Math.round(cc)}% ${cc > 50 ? '> 50%' : '< 50%'}, vento ${f1(u_ms)} m/s`, el }; }
+  const sf = Math.sin(el * Math.PI / 180), Fs = sf > 0.1 ? 1111 * (1 - 0.0071 * CI * CI) * (sf - 0.1) : 0;
+  const c = Fs > 851 ? 0 : Fs > 526 ? 1 : 2;
+  const txt = ALOHA_T10_TXT[riga][c];
+  return { classe: ALOHA_T10[riga][c], desc: `giorno, elevazione del sole ${Math.round(el)}°, indice di nuvolosità ${CI}/10, insolazione Fs = ${Math.round(Fs)} W/m² (${['forte', 'moderata', 'lieve'][c]}${Fs <= 176 ? ', sotto 176 W/m²: si usa la colonna lieve, la più stabile del giorno' : ''}), vento ${f1(u_ms)} m/s → ${txt}${txt.includes('–') ? ' (si sceglie la più stabile)' : ''}`, el };
 }
 let meteoServizio = null;
 $('btnMeteo').onclick = () => {
   const vai = (lat, lon) => {
     $('meteoInfo').textContent = 'Richiesta al servizio meteo…';
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}&current=temperature_2m,wind_speed_10m,wind_direction_10m,cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high&wind_speed_unit=ms&timezone=auto`;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}&current=temperature_2m,wind_speed_10m,wind_direction_10m,cloud_cover&wind_speed_unit=ms&timezone=auto`;
     fetch(url).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }).then(j => {
       const c = j.current, u = Math.max(+c.wind_speed_10m, 0.5);
-      const t = new Date(), el = elevazioneSole(lat, lon, t);
-      const st = classeTurner({ u_ms: u, elev: el, cc: c.cloud_cover, low: c.cloud_cover_low, mid: c.cloud_cover_mid });
+      const st = classeAloha({ u_ms: u, lat, lon, t: new Date(), cc: c.cloud_cover });
       $('vento').value = u.toFixed(1); $('temp').value = Math.round(c.temperature_2m); $('dirVento').value = Math.round(c.wind_direction_10m) % 360; $('dirSet').value = ''; $('stab').value = st.classe;
       meteoServizio = { u: +u.toFixed(1), T: Math.round(c.temperature_2m), dir: Math.round(c.wind_direction_10m) % 360, stab: st.classe, ora: c.time, lat, lon,
-        testo: `Meteo dal servizio Open-Meteo (modelli di previsione, valori "attuali" del ${c.time.replace('T', ' ')} ora locale) nel punto ${lat.toFixed(4)}, ${lon.toFixed(4)}: vento a 10 m ${u.toFixed(1).replace('.', ',')} m/s da ${Math.round(c.wind_direction_10m)}°, temperatura ${Math.round(c.temperature_2m)} °C. Classe di stabilità ${st.classe} stimata con il metodo di Turner (PCRAMMET User's Guide, EPA-454/B-96-001, Tabelle 4-1 e 4-2): ${st.desc}. Soffitto stimato dagli strati di Open-Meteo (nubi basse fino a 3 km, medie 3–8 km), approssimazione dichiarata. Dati di modello, non misure sul posto: verificare con l'osservazione locale` };
+        testo: `Meteo dal servizio Open-Meteo (modelli di previsione, valori "attuali" del ${c.time.replace('T', ' ')} ora locale) nel punto ${lat.toFixed(4)}, ${lon.toFixed(4)}: vento a 10 m ${u.toFixed(1).replace('.', ',')} m/s da ${Math.round(c.wind_direction_10m)}°, temperatura ${Math.round(c.temperature_2m)} °C. Classe di stabilità ${st.classe} stimata con il metodo di ALOHA (ALOHA 5.4.4 Technical Documentation, § 4.2.1, Tabella 10): ${st.desc}. Valida per pennacchi sulla terraferma: per un rilascio sull'acqua ALOHA assume condizioni stabili. Dati di modello, non misure sul posto: verificare con l'osservazione locale` };
       $('meteoInfo').textContent = meteoServizio.testo + '.';
     }).catch(e => { meteoServizio = null; $('meteoInfo').textContent = 'Servizio meteo non raggiungibile (' + e.message + '): inserire i dati a mano.'; });
   };

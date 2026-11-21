@@ -390,18 +390,29 @@ function bindGF(p) {
 // ---------- linee di confidenza sulla direzione del vento (opzione stile ALOHA, scelta di Luca 19/11/2026) ----------
 // Formula ALOHA verificata il 21/11/2026 sul testo fornito da Luca (Jones et al. 2013, NOAA TM NOS OR&R 43, § 4.5.3 "Confidence contours"):
 // α = arctan(2·σy / (300·U3)), con U3 vento a 3 m in m/s e 300·U3 = distanza percorsa dalla nube in 5 minuti; σy valutato a quella distanza.
-// Scelte di Claude: vento a 3 m dal vento a 10 m con la legge di potenza e gli esponenti rurali ISC3 (EPA-454/B-95-003b); σy di Briggs rurale, come nel resto dell'app.
+// U3 dal vento a 10 m con il profilo logaritmico di ALOHA (Tech. Doc. 5.4.4, § 4.2.3): U(z) ∝ ln((z + z0)/z0) − ψ(z/L), Businger 1973,
+// z0 = 0,03 m ("Open Country"), lunghezza di Obukhov L dalla classe di stabilità con le relazioni empiriche di ALOHA; σy di Briggs rurale (come ALOHA, § 4.3.1).
 const ALOHA_VERIFICATO = true;
-const P_VENTO = { A: 0.07, B: 0.07, C: 0.10, D: 0.15, E: 0.35, F: 0.55 };
+const Z0_ALOHA = 0.03;
+function lObukhov(stab, z0 = Z0_ALOHA) { return { A: -11.4 * z0 ** 0.10, B: -26.0 * z0 ** 0.17, C: -123 * z0 ** 0.30, D: Infinity, E: 123 * z0 ** 0.30, F: 26.0 * z0 ** 0.17 }[stab] ?? Infinity; }
+function psiM(zeta) {
+  if (zeta > 0) return -4.7 * zeta;
+  if (zeta < 0) { const a = Math.pow(1 - 15 * zeta, 0.25); return 2 * Math.log((1 + a) / 2) + Math.log((1 + a * a) / 2) - 2 * Math.atan(a) + Math.PI / 2; }
+  return 0;
+}
+function ventoQuota(u10, z, stab, z0 = Z0_ALOHA) {
+  const L = lObukhov(stab, z0), f = q => Math.log((q + z0) / z0) - psiM(Number.isFinite(L) ? q / L : 0);
+  return u10 * f(z) / f(10);
+}
 function angoloConfidenza(u10, stab = 'D') {
-  const p = P_VENTO[stab] ?? 0.15, U3 = u10 * Math.pow(3 / 10, p), x5 = 300 * U3, sy = M.BRIGGS_RURALE[stab] ? M.BRIGGS_RURALE[stab](x5)[0] : 0.08 * x5;
+  const U3 = ventoQuota(u10, 3, stab), x5 = 300 * U3, sy = M.BRIGGS_RURALE[stab] ? M.BRIGGS_RURALE[stab](x5)[0] : 0.08 * x5;
   const a = Math.atan(2 * sy / x5) * 180 / Math.PI, f1 = v => String(+v.toFixed(1)).replace('.', ',');
   const NOTA_DEBOLE = 'A basse velocità del vento la direzione diventa meno prevedibile e aumenta la possibilità che la nube cambi direzione (ALOHA, § 4.5.3).';
   // regola ALOHA del vento debole (indicata da Luca, 21/11/2026): al limite minimo di 1 m/s a 10 m le linee di confidenza formano un cerchio
   if (u10 <= 1) return { cerchio: true, gradi: 180, fedele: true,
     testo: `Linee di confidenza secondo il metodo di ALOHA (Jones et al. 2013, NOAA TM NOS OR&R 43, § 4.5.3): con vento di ${f1(u10)} m/s a 10 m si è al limite minimo accettato da ALOHA (1 m/s, circa 2 nodi), e le linee di confidenza formano un cerchio di raggio pari alla distanza, che indica l'elevata incertezza sulla direzione di propagazione. ${NOTA_DEBOLE}` };
   return { cerchio: false, gradi: a, fedele: true,
-    testo: `Linee di confidenza secondo il metodo di ALOHA (Jones et al. 2013, NOAA TM NOS OR&R 43, § 4.5.3): impronta ruotata di ±α attorno alla direzione del vento, con α = arctan(2·σy / (300·U3)) = ${f1(a)}°. U3 = vento a 3 m = ${f1(U3)} m/s, ricavato dal vento a 10 m (${f1(u10)} m/s) con la legge di potenza, esponente ${String(p).replace('.', ',')} per la classe ${stab} (ISC3, terreno rurale); 300·U3 = ${Math.round(x5)} m, distanza percorsa in 5 minuti; σy = ${f1(sy)} m a quella distanza (Briggs rurale). Metodo fedele ad ALOHA nella formula dell'angolo; il calcolo di σy e del vento a 3 m è quello dell'app. ${NOTA_DEBOLE}` };
+    testo: `Linee di confidenza secondo il metodo di ALOHA (Jones et al. 2013, NOAA TM NOS OR&R 43, § 4.5.3): impronta ruotata di ±α attorno alla direzione del vento, con α = arctan(2·σy / (300·U3)) = ${f1(a)}°. U3 = vento a 3 m = ${f1(U3)} m/s, ricavato dal vento a 10 m (${f1(u10)} m/s) con il profilo del vento di ALOHA (§ 4.2.3: profilo logaritmico con la correzione di stabilità di Businger, lunghezza di Obukhov della classe ${stab}, rugosità 0,03 m "Open Country"); 300·U3 = ${Math.round(x5)} m, distanza percorsa in 5 minuti; σy = ${f1(sy)} m a quella distanza (Briggs rurale, come ALOHA § 4.3.1). Metodo fedele ad ALOHA (formula dell'angolo, profilo del vento e σy secondo la documentazione tecnica ALOHA 5.4.4). ${NOTA_DEBOLE}` };
 }
 // Nota sulla rappresentazione grafica e sulla dipendenza dal vento, per ogni scenario (richiesta di Luca, 19/11/2026)
 const EFFETTO = [[/Pool fire|Jet fire/, 'l\'irraggiamento termico stazionario non dipende'], [/BLEVE/, 'l\'irraggiamento della fireball non dipende'], [/TNT/, 'la sovrappressione dell\'esplosione non dipende'], [/Distanze ERG/, 'le distanze fisse dell\'ERG per questa voce non dipendono']];
@@ -673,7 +684,8 @@ $('calc').onclick = () => {
     { const mv = meteoUser && !$('meteobox').classList.contains('hide');
       const dv = mv ? dirVentoScelta() : null, rs = mv ? $('rappr').value : 'erg';
       risultati.forEach(r => { r.meteoReale = mv; r.rapprScelta = rs;
-        if (dv !== null) { r.dirVento = dv; r.rappr = rs === 'aloha' && r.impronta && !r.soloERG && !/VCE/.test(r.scenario) ? 'aloha' : 'erg'; } }); if (mv) applicaMeteoServizio(risultati); }
+        if (dv !== null) { r.dirVento = dv; r.rappr = rs === 'aloha' && r.impronta && !r.soloERG && !/VCE/.test(r.scenario) ? 'aloha' : 'erg'; } }); if (mv) applicaMeteoServizio(risultati);
+      risultati.forEach(r => { if (r.meteo && r.meteo.vento_ms < 1) r.avvisi = [...(r.avvisi || []), `Vento di ${String(r.meteo.vento_ms).replace('.', ',')} m/s, sotto 1 m/s a 10 m: i modelli di dispersione non sono affidabili in condizioni di calma (ALOHA, Tech. Doc. 5.4.4 § 1.2, si applica solo con vento oltre 1 m/s). Considerare la nube ferma attorno alla sorgente e le distanze come indicative.`]; }); }
     if (cur.classe.startsWith('1.')) {
       const { nem } = leggiNEM(), na = num('nemart');
       const qd = M.qdDoD({ div: cur.classe, nem_kg: nem, nemArticolo_kg: na && na > 0 ? na : null, ferrovia: !!($('ferro') && $('ferro').checked), grossoCalibro: !!($('calibro') && $('calibro').checked) });
