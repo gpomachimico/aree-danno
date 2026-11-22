@@ -24,6 +24,7 @@ const SEGR_COL = ['1.1', '1.3', '1.4', '2.1', '2.2', '2.3', '3', '4.1', '4.2', '
 const SEGR_NOMI = { '1.1': 'esplosivi 1.1, 1.2, 1.5', '1.3': 'esplosivi 1.3, 1.6', '1.4': 'esplosivi 1.4', '2.1': 'gas infiammabili', '2.2': 'gas non infiammabili, non tossici', '2.3': 'gas tossici', 3: 'liquidi infiammabili', '4.1': 'solidi infiammabili', '4.2': 'materie soggette ad accensione spontanea', '4.3': 'materie che con l\'acqua sviluppano gas infiammabili', '5.1': 'comburenti', '5.2': 'perossidi organici', '6.1': 'tossiche', '6.2': 'infettive', 7: 'radioattive', 8: 'corrosive', 9: 'varie' };
 function rigaSegr(cl) {
   const c = String(cl).trim(), m = c.match(/^1\.(\d)/);
+  if (c === '1') return '1.1'; if (c === '2') return null; // UN 0190 campioni; UN 1950 e 2037 divisione secondo il contenuto
   if (m) return { 1: '1.1', 2: '1.1', 5: '1.1', 3: '1.3', 6: '1.3', 4: '1.4' }[m[1]];
   const k = c.match(/^\d(\.\d)?/); return k ? k[0] : null;
 }
