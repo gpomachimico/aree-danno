@@ -556,6 +556,24 @@ function gasLiquefattoMeteo(param, meteo = METEO_PREDEFINITO) {
 // ============ 7. GAS INFIAMMABILI – jet fire, flash fire, esplosione da nube (VCE) ============
 // Jet fire: lunghezza di fiamma da API 521 (forma di Beychok, L = 0,00326 Q^0,478 con Q in W, potere calorifico inferiore),
 // sorgente puntiforme a metà fiamma (API 521), frazione irraggiata di Chamberlain (1987): F = 0,21 e^(−0,00323 u_eq) + 0,11
+// velocità equivalente del getto espanso (Birch et al. 1987): conserva massa e quantità di moto dopo l'espansione a pressione ambiente
+function velocitaEquivalente({ fo, P, Ta, prop, d_mm }) {
+  const g = prop.gam, A = Math.PI * Math.pow(d_mm / 1000, 2) / 4, M = prop.pm / 1000;
+  let pj, Tj;
+  if (fo.critico) { Tj = Ta * 2 / (g + 1); pj = P * Math.pow(2 / (g + 1), g / (g - 1)); }
+  else { pj = P_ATM; Tj = Ta * Math.pow(P_ATM / P, (g - 1) / g); }
+  const rhoj = pj * M / (R_GAS * Tj), uj = fo.Q / (rhoj * A);
+  return { uj, rhoj, ueq: uj + (pj - P_ATM) / (rhoj * uj) };
+}
+// getto libero turbolento (V2 22/11/2026): frazione in massa sull'asse Y(x) = 5,4·√(ρN/ρa)·D/x (Chen e Rodi 1980, getto rotondo),
+// nella forma della legge di similitudine di Molkov valida anche per i getti sottoespansi: D diametro reale del foro, ρN densità del gas nella sezione del foro
+function gettoLibero({ rhoN, d_mm, prop, Ta, frazioniVol }) {
+  const M = prop.pm / 1000, Ma = 0.028964, rho_a = P_ATM * Ma / (R_GAS * Ta);
+  const k = 5.4 * Math.sqrt(rhoN / rho_a) * d_mm / 1000;
+  const out = {};
+  for (const [nome, xv] of Object.entries(frazioniVol)) { const Y = xv * M / (xv * M + (1 - xv) * Ma); out[nome] = k / Y; }
+  return out;
+}
 function jetFire({ massa_kg, fase = 'gas', d_mm = 10, h_m = 1, P_bar = null, prop, T_C = 20, sostanza = '', contenitore = '' }) {
   const comp = !!prop.compresso, Ta = T_C + 273.15, M = prop.pm / 1000;
   if (comp && fase === 'liq') throw 'Gas compresso: scegliere il foro in fase gassosa';
@@ -564,12 +582,7 @@ function jetFire({ massa_kg, fase = 'gas', d_mm = 10, h_m = 1, P_bar = null, pro
   const Q = fo.Q; if (!(Q > 0)) throw 'Con questa temperatura la pressione nel recipiente non supera quella atmosferica: il getto non si forma';
   let F, ueq = null, uj = null;
   if (fase === 'gas') {
-    const g = prop.gam, A = Math.PI * Math.pow(d_mm / 1000, 2) / 4;
-    let pj, Tj;
-    if (fo.critico) { Tj = Ta * 2 / (g + 1); pj = P * Math.pow(2 / (g + 1), g / (g - 1)); }
-    else { pj = P_ATM; Tj = Ta * Math.pow(P_ATM / P, (g - 1) / g); }
-    const rhoj = pj * M / (R_GAS * Tj); uj = Q / (rhoj * A);
-    ueq = uj + (pj - P_ATM) / (rhoj * uj);                           // Birch et al.: velocità equivalente del getto espanso
+    ({ uj, ueq } = velocitaEquivalente({ fo, P, Ta, prop, d_mm }));   // Birch et al.: velocità equivalente del getto espanso
     F = 0.21 * Math.exp(-0.00323 * ueq) + 0.11;
   } else F = 0.32;                                                   // getto bifase: valore massimo della correlazione (cautelativo)
   const QkW = Q * prop.dHc, L = 0.00326 * Math.pow(QkW * 1000, 0.478);
@@ -606,6 +619,22 @@ function flashFire(param) {
   r.scenario = `Flash fire – meteo ${param.stabilita}${param.u_ms}`;
   r.distanze_m = { elevata_letalita: r.distanze_m.LFL, inizio_letalita: r.distanze_m.mezzo_LFL };
   r.impronta = { elevata_letalita: r.impronta.LFL, inizio_letalita: r.impronta.mezzo_LFL };
+  // gas più leggero dell'aria con perdita da foro in fase gassosa: estensione della nube infiammabile dal getto libero (opzione predefinita)
+  const Ta = (param.T_C ?? 20) + 273.15, leggero = p.pm < 28.964;
+  if (leggero && param.scenario === 'gas' && param.getto !== false && !param.generato) {
+    const P = p.compresso ? param.P_bar * 1e5 : psatBar(p.ps, Ta - 273.15) * 1e5;
+    const fo = portataForo({ fase: 'gas', d_mm: param.d_mm, P_Pa: P, T_K: Ta, prop: p, h_m: param.h_m || 1 });
+    const { rhoj } = velocitaEquivalente({ fo, P, Ta, prop: p, d_mm: param.d_mm });
+    const gl = gettoLibero({ rhoN: rhoj, d_mm: param.d_mm, prop: p, Ta, frazioniVol: { el: p.LFL / 100, il: p.LFL / 200 } });
+    const gau = { ...r.distanze_m };
+    r.distanze_m = { elevata_letalita: r1(gl.el), inizio_letalita: r1(gl.il) };
+    r.impronta = undefined; r.getto = true;
+    r.dettagli.modello_LFL = r.dettagli.modello_mezzo_LFL = 'getto libero (Chen e Rodi 1980)';
+    r.dettagli.densita_gas_nel_foro_kg_m3 = +rhoj.toFixed(2);
+    r.ipotesi.push(`Gas più leggero dell'aria (M = ${itn(p.pm, 2)} g/mol) con getto da foro: l'estensione della nube infiammabile è quella del getto libero turbolento, in cui la diluizione per trascinamento d'aria domina sul vento e sul galleggiamento. Frazione in massa sull'asse Y(x) = 5,4·√(ρN/ρa)·D/x (Chen e Rodi 1980, getto rotondo), nella forma della legge di similitudine di Molkov e collaboratori, validata anche per i getti sottoespansi di idrogeno: D diametro del foro (${param.d_mm} mm), ρN densità del gas nella sezione del foro (${itn(rhoj, 2)} kg/m³, efflusso ${fo.critico ? 'critico' : 'subcritico'} come gas ideale), ρa densità dell'aria. Getto orizzontale libero, diretto in qualunque direzione: zone circolari. Scelta di Claude, opzione; con la dispersione gaussiana al suolo le distanze sarebbero ${gau.elevata_letalita ?? '–'} m (LFL) e ${gau.inizio_letalita ?? '–'} m (½ LFL)`);
+    r.avvisi = r.avvisi.filter(a => !/più leggero dell'aria/.test(a));
+    r.avvisi.push('Getto libero: vale per il getto non ostacolato. Se il getto urta un ostacolo o il suolo perde quantità di moto e la nube infiammabile può accumularsi più vicino ma più larga; in uno spazio chiuso o semichiuso il gas leggero si accumula sotto il soffitto.');
+  }
   r.zone_m = { I: r.distanze_m.elevata_letalita, II: r.distanze_m.inizio_letalita, III: undefined };
   r.dettagli.modello_elevata_letalita = r.dettagli.modello_LFL; r.dettagli.modello_inizio_letalita = r.dettagli.modello_mezzo_LFL;
   delete r.dettagli.modello_LFL; delete r.dettagli.modello_mezzo_LFL;
@@ -637,6 +666,7 @@ function vce(param) {
     const xl = Number.isFinite(xL) && xL ? xL : 0;
     Mf = Math.min(mNube, Q * xl / param.u_ms);
     ipoM = `Massa nella nube infiammabile: portata × tempo di transito fino alla distanza del LFL (${Q.toFixed(2).replace('.', ',')} kg/s × ${Math.round(xl)} m / ${param.u_ms} m/s = ${itn(Mf, 1)} kg), al massimo la massa rilasciata`;
+    if (ff.getto) ipoM += `. Distanza del LFL dal getto libero del gas leggero (Chen e Rodi, legge di similitudine di Molkov, come nel flash fire); il tempo di transito con la velocità del vento invece di quella del getto, molto maggiore, sovrastima la massa nella nube (cautelativo)`;
   }
   const W = eta * Mf * p.dHc / E_TNT_kJkg, k = Math.cbrt(Math.max(W, 1e-9));
   const off = Number.isFinite(xL) && xL ? xL / 2 : 0;

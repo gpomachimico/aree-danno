@@ -302,7 +302,7 @@ function campiGL(p) {
 }
 function bindGL() {
   const c = $('glc'), s = $('gls'), w = $('glfw');
-  const agg = () => { w.style.visibility = s.value === 'tot' ? 'hidden' : 'visible'; };
+  const agg = () => { w.style.visibility = s.value === 'tot' ? 'hidden' : 'visible'; if ($('ggbox')) $('ggbox').classList.toggle('hide', s.value !== 'gas'); };
   c.addEventListener('change', () => { const o = contenitoriGL().find(x => x[0] === c.value); if (o) { $('massa').value = o[2]; $('dforo').value = o[3]; } });
   s.addEventListener('change', agg); agg();
 }
@@ -424,12 +424,13 @@ function campiGF(p, m) {
   return `<label>Recipiente</label><select id="glc">${op.map(([v, t]) => `<option value="${v}" ${v === def[0] ? 'selected' : ''}>${t}</option>`).join('')}</select>
     <label>Scenario di rilascio</label><select id="gls">${sc.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}</select>
     ${q}<div class="row"><div id="glfw">${f('dforo', 'Diametro del foro (mm)', def[3])}</div>${m === 'VCE' ? `<div><label for="eta">Rendimento dell'esplosione</label><select id="eta"><option value="0.1">10% – scenario peggiore EPA, area congestionata</option><option value="0.03">3% – campo aperto, poca congestione</option></select></div>` : ''}</div>
+    ${(m === 'FF' || m === 'VCE') && p.pm < 28.964 ? `<div id="ggbox"><label for="ggetto">Nube infiammabile del gas leggero (perdita da foro)</label><select id="ggetto"><option value="getto" selected>Getto libero – diluizione del getto (Chen e Rodi, legge di similitudine di Molkov), predefinito</option><option value="gauss">Dispersione al suolo – gaussiana, senza galleggiamento (molto cautelativa)</option></select></div>` : ''}
     <p class="small">Sostanza di calcolo: ${p.nome}. ${nota} La temperatura del contenuto è quella dell'aria indicata nel meteo.</p>`;
 }
 function bindGF(p) {
   const c = $('glc'), s = $('gls'), w = $('glfw');
   const aggM = () => { if (p.compresso && !p.disciolto) { const V = num('capL'), P = num('pbar'); $('gfmassa').textContent = V > 0 && P > 0 ? `Massa di gas: ${massaCompresso(p, V, P).toFixed(1).replace('.', ',')} kg (a 20 °C, fattore di compressibilità da CoolProp)` : ''; } };
-  const agg = () => { w.style.visibility = s.value === 'tot' ? 'hidden' : 'visible'; };
+  const agg = () => { w.style.visibility = s.value === 'tot' ? 'hidden' : 'visible'; if ($('ggbox')) $('ggbox').classList.toggle('hide', s.value !== 'gas'); };
   c.addEventListener('change', () => { const o = contenitoriGF(p).find(x => x[0] === c.value); if (o) { $(p.compresso && !p.disciolto ? 'capL' : 'massa').value = o[2]; $('dforo').value = o[3]; aggM(); } });
   if (p.compresso && !p.disciolto) { $('capL').addEventListener('input', aggM); $('pbar').addEventListener('input', aggM); }
   s.addEventListener('change', () => { agg(); if ($('eta')) $('eta').value = s.value === 'tot' ? '0.1' : '0.03'; });
@@ -746,7 +747,7 @@ $('calc').onclick = () => {
         cont = `Recipiente: ${nomeC}, contenuto ${ms} kg di ${p.nome} liquefatto sotto pressione alla temperatura dell'aria`;
       }
       const meteo = meteoScelto();
-      const base = { massa_kg: ms, scenario: sc, d_mm: dmm, h_m: c === 'cist' ? 2 : 1, P_bar: Pb, prop: p, sostanza: `${sost} (${p.nome})`, contenitore: cont };
+      const base = { massa_kg: ms, scenario: sc, d_mm: dmm, h_m: c === 'cist' ? 2 : 1, P_bar: Pb, prop: p, sostanza: `${sost} (${p.nome})`, contenitore: cont, getto: !$('ggetto') || $('ggetto').value === 'getto' };
       if (m === 'JF') {
         const r = M.jetFire({ ...base, fase: sc, T_C: meteoUser ? (num('temp') ?? 20) : 20 });
         r.ipotesi.push(`Temperatura del contenuto ${meteoUser ? (num('temp') ?? 20) : 20} °C. Dati della sostanza: ${p.fonte}`);
