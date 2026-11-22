@@ -220,11 +220,29 @@ function buildFields() {
   if (m === 'GA') bindForo();
   if (m === 'BT') { const c = $('btc'); c.onchange = () => { $('massa').value = c.value; }; }
   if (m === 'W2') { const iw = $('imbW'); iw.onchange = () => { if (+iw.value) $('massaW').value = iw.value; }; }
+  bindVceMetodo();
   if (p.criogenico) { if ($('pcc')) bindPC(p); }
   else {
     if (m === 'GL') bindGL();
     if (m === 'JF' || m === 'FF' || m === 'VCE') bindGF(p);
   }
+}
+
+// metodo della VCE (22/11/2026): TNT equivalente (EPA) o Baker-Strehlow-Tang come in ALOHA
+function vceMetodoHTML(p) {
+  return `<label for="metV">Metodo per l'esplosione da nube</label><select id="metV"><option value="TNT" selected>TNT equivalente – EPA 40 CFR 68 (predefinito)</option><option value="BST">Baker-Strehlow-Tang – come ALOHA</option></select>
+    <div id="bstbox" class="hide"><div class="row"><div><label for="congV">Congestione della zona</label><select id="congV"><option value="bassa" selected>Bassa – area aperta, pochi ostacoli</option><option value="media">Media</option><option value="alta">Alta – ostacoli fitti, difficile attraversarla a piedi (es. pipe rack, vegetazione fitta)</option></select></div><div></div></div>
+    ${chk('innV', 'Innesco forte (esplosivo o esplosione confinata): detonazione di tutta la nube')}
+    <p class="small">Reattività della sostanza: ${p.reattivita || 'media'}${p.fonteReatt ? ' (' + p.fonteReatt + ')' : ' (non classificata: ALOHA usa la media)'}. ALOHA fa esplodere il 20% della massa infiammabile, il 100% con la detonazione.</p></div>`;
+}
+function bindVceMetodo() {
+  const mv = $('metV'); if (!mv) return;
+  const agg = () => { $('bstbox').classList.toggle('hide', mv.value !== 'BST'); const e = $('eta'); if (e) e.parentElement.style.visibility = mv.value === 'BST' ? 'hidden' : 'visible'; };
+  mv.onchange = agg; agg();
+}
+function vceOpzioni() {
+  if (!$('metV') || $('metV').value !== 'BST') return { metodo: 'TNT' };
+  return { metodo: 'BST', congestione: $('congV').value, innescoForte: $('innV').checked };
 }
 
 // ---------- liquidi refrigerati: pozza criogenica bollente (V2, 21/11/2026) ----------
@@ -238,7 +256,7 @@ function campiPC(p, m) {
     <select id="gls" class="hide"><option value="pozza">pozza</option></select>
     <div class="row">${f('massa', 'Liquido rilasciato (kg)', op[0][2])}<div><label for="subPC">Superficie su cui si spande</label><select id="subPC">${sub.map(([k, v]) => `<option value="${k}">${v.nome[0].toUpperCase() + v.nome.slice(1)}</option>`).join('')}</select></div></div>
     <div class="row">${f('areaPC', 'Area del bacino di contenimento (m²) – vuoto = non confinato', '', 'placeholder="non confinato"')}<div><label for="spesPC">Spessore minimo della pozza non confinata</label><select id="spesPC"><option value="0.01" selected>1 cm – EPA OCA (1999), predefinito</option><option value="0.005">0,5 cm – ALOHA 5.4.4 Tech. Doc. § 3.4.4.2</option></select></div></div>
-    ${m === 'VCE' ? `<label for="eta">Rendimento dell'esplosione</label><select id="eta"><option value="0.03">3% – campo aperto, poca congestione (CCPS)</option><option value="0.1">10% – scenario peggiore EPA, area congestionata</option></select>` : ''}
+    ${m === 'VCE' ? `<div><label for="eta">Rendimento dell'esplosione</label><select id="eta"><option value="0.03">3% – campo aperto, poca congestione (CCPS)</option><option value="0.1">10% – scenario peggiore EPA, area congestionata</option></select></div>` + vceMetodoHTML(p) : ''}
     <p class="small">Liquido refrigerato a pressione atmosferica (${p.nome}): rilascio istantaneo, la pozza bolle alla temperatura di ebollizione (${String(+(p.Tb - 273.15).toFixed(1)).replace('.', ',')} °C) con il calore ceduto dalla superficie, che si assume alla temperatura dell'aria. ${nota}${p.solubile ? ' Sull\'acqua il calcolo non è previsto (la sostanza si scioglie).' : ''}</p>`;
 }
 function bindPC(p) {
@@ -425,6 +443,7 @@ function campiGF(p, m) {
     <label>Scenario di rilascio</label><select id="gls">${sc.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}</select>
     ${q}<div class="row"><div id="glfw">${f('dforo', 'Diametro del foro (mm)', def[3])}</div>${m === 'VCE' ? `<div><label for="eta">Rendimento dell'esplosione</label><select id="eta"><option value="0.1">10% – scenario peggiore EPA, area congestionata</option><option value="0.03">3% – campo aperto, poca congestione</option></select></div>` : ''}</div>
     ${(m === 'FF' || m === 'VCE') && p.pm < 28.964 ? `<div id="ggbox"><label for="ggetto">Nube infiammabile del gas leggero (perdita da foro)</label><select id="ggetto"><option value="getto" selected>Getto libero – diluizione del getto (Chen e Rodi, legge di similitudine di Molkov), predefinito</option><option value="gauss">Dispersione al suolo – gaussiana, senza galleggiamento (molto cautelativa)</option></select></div>` : ''}
+    ${m === 'VCE' ? vceMetodoHTML(p) : ''}
     <p class="small">Sostanza di calcolo: ${p.nome}. ${nota} La temperatura del contenuto è quella dell'aria indicata nel meteo.</p>`;
 }
 function bindGF(p) {
@@ -597,11 +616,11 @@ $('calc').onclick = () => {
         const mb = acqua ? p.mburnAcqua : p.mburnTerra;
         const r = M.poolFire({ volume_m3: ms / p.rhol, densita_rel: p.rhol / 1000, mburn: mb, dHc_kJkg: p.dHcPF, Ef: p.EfPF, area_m2: num('areaPC') || null, spessore_m: +$('spesPC').value, sostanza: `${sost} (${p.nome})`, fonteDati: p.fontePF });
         r.ipotesi.unshift(cont + `, sopra ${pc.substrato}; innesco immediato: la pozza brucia senza formare prima la nube`);
-        r.ipotesi.push(`Velocità di combustione ${acqua ? 'sull\'acqua' : 'sul terreno'} e potere emissivo del GNL in luogo dei valori NISTIR; potere emissivo con soot trascurabile, adatto alle pozze di GNL anche grandi (Sandia). Dati della sostanza: ${p.fonte}`);
+        r.ipotesi.push(`Velocità di combustione ${acqua ? 'sull\'acqua' : 'sul terreno'} e potere emissivo specifici del liquido refrigerato, come indicato sopra. Dati della sostanza: ${p.fonte}`);
         risultati = [r];
       } else {
         const base = { massa_kg: +pc.massa_emessa_kg.toFixed(1), scenario: 'pozza', prop: p, sostanza: `${sost} (${p.nome})`, contenitore: cont,
-          generato: { durata_s: pc.durata_s, T_K: p.Tb, ipotesi: pc.ipotesi } };
+          generato: { durata_s: pc.durata_s, T_K: p.vapCaldo ? T + 273.15 : p.Tb, ipotesi: pc.ipotesi + (p.vapCaldo ? '. ' + p.vapCaldo : '') } };
         const meteo = meteoScelto();
         if (m === 'GL') {
           risultati = M.gasLiquefattoMeteo({ ...base, soglie_ppm: { LC50: p.LC50, IDLH: p.IDLH, LOC: p.LOC },
@@ -611,7 +630,7 @@ $('calc').onclick = () => {
           risultati = M.flashFireMeteo(base, meteo);
           risultati.forEach(r => { r.scenario = r.scenario.replace('Flash fire', 'Flash fire da pozza criogenica'); r.ipotesi.push('Dati della sostanza: ' + p.fonte); });
         } else {
-          risultati = M.vceMeteo({ ...base, eta: +$('eta').value }, meteo);
+          risultati = M.vceMeteo({ ...base, eta: +$('eta').value, ...vceOpzioni() }, meteo);
           risultati.forEach(r => r.ipotesi.push('Dati della sostanza: ' + p.fonte));
         }
         risultati.forEach(r => { r.dettagli.area_pozza_m2 = Math.round(pc.A); r.dettagli.evaporazione_completa_min = +(pc.te / 60).toFixed(1); });
@@ -756,7 +775,7 @@ $('calc').onclick = () => {
         risultati = M.flashFireMeteo(base, meteo);
         risultati.forEach(r => r.ipotesi.push('Dati della sostanza: ' + p.fonte));
       } else {
-        risultati = M.vceMeteo({ ...base, eta: +$('eta').value }, meteo);
+        risultati = M.vceMeteo({ ...base, eta: +$('eta').value, ...vceOpzioni() }, meteo);
         risultati.forEach(r => r.ipotesi.push('Dati della sostanza: ' + p.fonte));
       }
       if (p.avviso) risultati.forEach(r => r.avvisi = [p.avviso, ...(r.avvisi || [])]);

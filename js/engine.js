@@ -656,6 +656,16 @@ function flashFireMeteo(param, meteo = METEO_PREDEFINITO) {
 }
 // VCE: massa infiammabile dalla dispersione, metodo del TNT equivalente con rendimento η (EPA 40 CFR 68.25(e): 10% scenario peggiore)
 const E_TNT_kJkg = 4680;
+// Baker-Strehlow-Tang come in ALOHA (Tech. Doc. 5.4.4, § 5.2, Tabelle 14 e 15): ΔP/Patm = D se x < x0, altrimenti A·B^(1/x)·x^C,
+// x = r·(Patm/E)^(1/3), E = 2·Hc·massa (riflessione al suolo 2)
+const BST_CURVE = {
+  0.2: { A: 0.0335, B: 0.8359, C: -1.1192, D: 0.065, x0: 0.35 },
+  0.35: { A: 0.1041, B: 0.8642, C: -1.0568, D: 0.22, x0: 0.32 },
+  0.7: { A: 0.3764, B: 0.7439, C: -1.2728, D: 0.65, x0: 0.3 },
+  5.2: { A: 0.2932, B: 1.399, C: -1.1591, D: 20, x0: 0.16 }
+};
+const BST_MACH = { alta: { bassa: 0.36, media: 'DDT', alta: 'DDT' }, media: { bassa: 0.11, media: 0.44, alta: 0.5 }, bassa: { bassa: 0.026, media: 0.23, alta: 0.34 } };
+function bstCurva(mach) { if (mach === 'DDT') return 5.2; for (const m of [0.2, 0.35, 0.7, 5.2]) if (mach <= m) return m; return 5.2; }
 function vce(param) {
   const p = param.prop, eta = param.eta ?? 0.1;
   const ff = flashFire(param), xL = ff.distanze_m.elevata_letalita;
@@ -670,24 +680,47 @@ function vce(param) {
   }
   const W = eta * Mf * p.dHc / E_TNT_kJkg, k = Math.cbrt(Math.max(W, 1e-9));
   const off = Number.isFinite(xL) && xL ? xL / 2 : 0;
-  const pr = R => kingeryBulmash_bar(R / k), s = SOGLIE.sovrappressione_bar, d = {};
-  for (const key of ['elevata_letalita', 'elevata_letalita_spazi_aperti', 'inizio_letalita', 'lesioni_irreversibili', 'lesioni_reversibili']) {
-    const R = W > 0 ? distanzaSoglia(pr, s[key], 0.2 * k, 198.5 * k) : null;
-    d[key] = R === null ? null : r1(R + off);
+  const s = SOGLIE.sovrappressione_bar, d = {}, KEYS = ['elevata_letalita', 'elevata_letalita_spazi_aperti', 'inizio_letalita', 'lesioni_irreversibili', 'lesioni_reversibili'];
+  const bst = param.metodo === 'BST';
+  let ipoMetodo, dettBST = {};
+  if (bst) {
+    const reatt = p.reattivita || 'media', cong = param.congestione || 'bassa', forte = !!param.innescoForte;
+    const machT = forte ? 'DDT' : BST_MACH[reatt][cong], curva = bstCurva(machT), c = BST_CURVE[curva];
+    const frazione = curva === 5.2 ? 1 : 0.2, Mexp = frazione * Mf, E = 2 * p.dHc * 1000 * Mexp, L = Math.cbrt(E / P_ATM);
+    const pr = r => { const x = r / L; return (x < c.x0 ? c.D : c.A * Math.pow(c.B, 1 / x) * Math.pow(x, c.C)) * P_ATM / 1e5; };
+    for (const key of KEYS) {
+      if (!(Mexp > 0) || pr(c.x0 * L) < s[key]) { d[key] = null; continue; }
+      d[key] = r1(bisect(r => pr(r) - s[key], c.x0 * L, 1e4 * L) + off);
+    }
+    dettBST = { reattivita: reatt, congestione: cong, innesco_forte: forte, mach_tabella: machT, mach_curva: curva, massa_esplosiva_kg: +Mexp.toFixed(1), energia_MJ: Math.round(E / 1e6) };
+    ipoMetodo = [
+      `Metodo Baker-Strehlow-Tang come in ALOHA (Tech. Doc. 5.4.4, § 5.2): reattività ${reatt}${p.fonteReatt ? ' (' + p.fonteReatt + ')' : ' (non classificata: ALOHA usa la reattività media)'}, congestione ${cong}${forte ? ', innesco forte (detonazione di tutta la nube)' : ''}; velocità di fiamma ${machT === 'DDT' ? 'transizione a detonazione (DDT), Mach 5,2' : 'Mach ' + itn(machT, 3)} (Tabella 14)`,
+      `Curva di sovrappressione della Tabella 15 per Mach ${itn(curva, 2)}${machT !== 'DDT' && machT !== curva ? ` (la prima disponibile sopra Mach ${itn(machT, 3)}: scelta cautelativa di Claude, la documentazione non indica come interpolare)` : ''}: ΔP/Patm = ${itn(c.D, 3)} per x < ${itn(c.x0, 2)}, altrimenti ${itn(c.A, 4)}·${itn(c.B, 4)}^(1/x)·x^(${itn(c.C, 4)}), con x = r·(Patm/E)^(1/3)`,
+      `Energia E = 2 × potere calorifico (${p.dHc} kJ/kg) × massa che esplode (riflessione al suolo 2, ALOHA): massa che esplode = ${frazione === 1 ? '100%' : '20%'} della massa nella nube infiammabile (${itn(Mexp, 1)} kg; ALOHA usa il 20% secondo AIChE 1994${frazione === 1 ? ', il 100% con la detonazione' : ''})`
+    ];
+  } else {
+    const pr = R => kingeryBulmash_bar(R / k);
+    for (const key of KEYS) {
+      const R = W > 0 ? distanzaSoglia(pr, s[key], 0.2 * k, 198.5 * k) : null;
+      d[key] = R === null ? null : r1(R + off);
+    }
   }
   const avvisi = [...ff.avvisi.filter(a => !/10 km/.test(a))];
   if (!(Mf > 0)) avvisi.push('La concentrazione non raggiunge il limite inferiore di infiammabilità: nessuna nube infiammabile, esplosione non possibile in queste condizioni');
   return {
-    scenario: `Esplosione da nube (VCE) – meteo ${param.stabilita}${param.u_ms}`, sostanza: param.sostanza,
+    scenario: `Esplosione da nube (VCE${bst ? ", metodo BST" : ""}) – meteo ${param.stabilita}${param.u_ms}`, sostanza: param.sostanza,
     distanze_m: d,
     zone_m: { I: d.elevata_letalita, II: d.lesioni_irreversibili, III: d.lesioni_reversibili },
-    dettagli: { massa_infiammabile_kg: +Mf.toFixed(1), rendimento: eta, massa_TNT_kg: +W.toFixed(1), distanza_LFL_m: Number.isFinite(xL) ? xL : null, centro_esplosione_m: Math.round(off) },
+    dettagli: bst ? { massa_infiammabile_kg: +Mf.toFixed(1), ...dettBST, distanza_LFL_m: Number.isFinite(xL) ? xL : null, centro_esplosione_m: Math.round(off) }
+      : { massa_infiammabile_kg: +Mf.toFixed(1), rendimento: eta, massa_TNT_kg: +W.toFixed(1), distanza_LFL_m: Number.isFinite(xL) ? xL : null, centro_esplosione_m: Math.round(off) },
     ipotesi: [
       param.contenitore,
       ff.ipotesi[1],
       ipoM,
+      ...(bst ? ipoMetodo : [
       `Metodo del TNT equivalente: W = η × massa × potere calorifico (${p.dHc} kJ/kg) / ${E_TNT_kJkg} kJ/kg, con rendimento η = ${Math.round(eta * 100)}% (${eta >= 0.1 ? 'valore di 40 CFR 68.25(e) per lo scenario peggiore EPA' : 'valore tipico per nubi in campo aperto con poca congestione, CCPS'}) = ${itn(W, 1)} kg di TNT`,
-      'Sovrappressione di picco con le curve Kingery-Bulmash (1984) per esplosione emisferica al suolo, forma di Swisdak (1994). Nel campo vicino il metodo del TNT sovrastima le sovrappressioni di una deflagrazione',
+      'Sovrappressione di picco con le curve Kingery-Bulmash (1984) per esplosione emisferica al suolo, forma di Swisdak (1994). Nel campo vicino il metodo del TNT sovrastima le sovrappressioni di una deflagrazione'
+      ]),
       `Centro dell'esplosione a metà della distanza del LFL (${Math.round(off)} m sottovento): le distanze sono misurate dal punto di rilascio (cautelativo sottovento)`,
       `Dispersione per la nube infiammabile come per il flash fire (Britter-McQuaid e gaussiano, classe ${param.stabilita}, vento ${param.u_ms} m/s)`,
       'Soglie D.M. 9/5/2001 (sovrappressione di picco); frammenti e proiezioni non calcolati'

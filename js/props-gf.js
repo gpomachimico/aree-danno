@@ -93,11 +93,34 @@
       fontePF: 'velocità di combustione sul terreno 0,078 kg/m²s e calore di combustione 50 000 kJ/kg (Babrauskas, SFPE Handbook 2002, riportato in NUREG-1805 Tab. 3-2, "LNG mostly CH4"); sull\'acqua 0,147 kg/m²s (Sandia, prove Phoenix 2009 su acqua, Blanchat et al., SAND2010-8676); potere emissivo 286 kW/m², il valore massimo misurato nella prova Sandia con pozza di 56 m sull\'acqua',
       fonte: `proprietà fisiche del metano ${HEOS} (ebollizione −161,5 °C a 1 atm, entalpia di vaporizzazione 510,8 kJ/kg, densità del liquido 422 kg/m³ all'ebollizione); il metano non è nel NIOSH Pocket Guide; potere calorifico inferiore 50,0 MJ/kg da entalpie di formazione NIST WebBook; LFL 4,4% (${GESTIS})`,
       avviso: 'GNL: il gas naturale reale contiene anche etano, propano e azoto; il calcolo come metano puro è un\'approssimazione (la nube del GNL reale è un po\' più pesante e più infiammabile). Sull\'acqua il contatto violento può dare una transizione rapida di fase (RPT): un\'esplosione fisica locale senza combustione, non calcolata. Il vapore freddo è più pesante dell\'aria finché non si riscalda oltre circa −110 °C, poi diventa più leggero.' },
+    // refrigerati aggiunti il 22/11/2026: pozza criogenica come per il GNL
+    '1966': { nome: 'idrogeno liquido refrigerato (calcolo come paraidrogeno)', criogenico: true, pm: 2.016, Tb: 20.27, hv: 446.1, rhol: 70.8, dHc: 120000, LFL: 4.0,
+      contCrio: [['cist', 'Cisterna criogenica / tank-container (circa 40 m³)', 2500], ['altro', 'Altro recipiente criogenico', 100]],
+      mburnTerra: 0.017, mburnAcqua: 0.017, dHcPF: 120000, EfPF: 100,
+      vapCaldo: 'Vapore di idrogeno trattato a temperatura ambiente, quindi come gas leggero: a −253 °C il rapporto delle temperature (0,07) è fuori dal campo di validità della correzione non isoterma di Britter-McQuaid, e il vapore si riscalda e diventa più leggero dell\'aria in pochi metri (scelta di Claude); la dispersione gaussiana al suolo che ne segue ignora il galleggiamento ed è cautelativa',
+      fontePF: 'velocità di combustione 0,017 kg/m²s e calore di combustione 120 MJ/kg (Babrauskas, tabella dei combustibili criogenici "Liquid H2", riportata in Karlsson e Quintiere, Enclosure Fire Dynamics, Tab. 3.2; NISTIR 6546 dà 0,02 kg/m²s); la stessa velocità anche sull\'acqua, per mancanza di dati specifici; potere emissivo 100 kW/m² come per gli altri liquidi (NISTIR 6546), cautelativo per la fiamma di idrogeno poco radiante',
+      fonte: `proprietà fisiche ${HEOS} (paraidrogeno, la forma prevalente nel liquido: ebollizione −252,9 °C, entalpia di vaporizzazione 446,1 kJ/kg, densità del liquido 70,8 kg/m³); potere calorifico inferiore 120,0 MJ/kg (NIST, come UN 1049); LFL 4,0% (${GESTIS})`,
+      avviso: 'Idrogeno liquido: a −253 °C la pozza condensa e solidifica l\'aria circostante, con arricchimento di ossigeno e rischio di esplosione; il vapore freddo ha circa la densità dell\'aria e diventa subito più leggero riscaldandosi. Il modello della pozza (ALOHA) non rappresenta questi fenomeni.' },
+    '1038': { nome: 'etilene liquido refrigerato', criogenico: true, pm: 28.054, Tb: 169.38, hv: 482.4, rhol: 568, dHc: 47200, LFL: 2.4,
+      contCrio: [['cist', 'Cisterna criogenica / tank-container (circa 40 m³)', 18000], ['altro', 'Altro recipiente criogenico', 1000]],
+      mburnTerra: 0.099, mburnAcqua: 0.099, dHcPF: 47200, EfPF: 188,
+      fontePF: 'velocità di combustione 0,099 kg/m²s, il valore del GPL (Babrauskas, SFPE Handbook, in NUREG-1805 Tab. 3-2): le prove Sandia del 2025 su pozze di etilene liquido di 5 m (OSTI 2588296) indicano velocità simili a quelle delle grandi prove su GNL e GPL; potere emissivo 188 kW/m², la media misurata nelle stesse prove (Tab. 3-29)',
+      fonte: `proprietà fisiche ${HEOS} (ebollizione −103,8 °C, entalpia di vaporizzazione 482,4 kJ/kg, densità del liquido 568 kg/m³); ${LHV}; LFL 2,4% (${GESTIS}, come UN 1962)`,
+      avviso: 'Etilene liquido: il vapore freddo è più pesante dell\'aria finché non si riscalda; l\'etilene ha massa molare vicina a quella dell\'aria, quindi la nube resta a lungo al suolo.' },
     '1962': { nome: 'etilene compresso', compresso: true, pm: 28.053, gam: 1.244, dHc: 47165, LFL: 2.4,
       Z: { 1: 0.994, 10: 0.938, 25: 0.833, 40: 0.703, 50: 0.588, 55: 0.512, 60: 0.406, 65: 0.308, 70: 0.286, 75: 0.286, 80: 0.292, 90: 0.31, 100: 0.331, 125: 0.387, 150: 0.446, 200: 0.561 }, Pdef: 60,
       fonte: `fattore di compressibilità a 20 °C da CoolProp; ${LHV}; LFL 2,4% (${GESTIS}, valore che differisce da CHEMSAFE)`,
       avviso: 'Etilene: temperatura critica 9,2 °C, a temperatura ambiente il gas è supercritico; vicino alla pressione di 60–80 bar la densità varia molto con la pressione. Il calcolo dell\'efflusso come gas ideale è indicativo.' }
   };
+  // reattività per il metodo BST (criterio di ALOHA, Tech. Doc. § 5.2: velocità di combustione laminare < 45 cm/s bassa, > 75 cm/s alta;
+  // valori da NFPA 68 riportati dalla tabella Dow sull'energia di innesco; R32 dalla scheda Arkema). Voci non classificate: media, come ALOHA
+  const SU = 'velocità di combustione laminare da NFPA 68 (tabella Dow "ignition energy")';
+  const REATT = { '1049': ['alta', `idrogeno 312 cm/s, ${SU}`], '1001': ['alta', `acetilene 166 cm/s, ${SU}`],
+    '1971': ['bassa', `metano 40 cm/s, ${SU}`], '1972': ['bassa', `metano 40 cm/s, ${SU}`],
+    '1978': ['media', `propano 46 cm/s, ${SU}`], '1075': ['media', `calcolo come propano, 46 cm/s, ${SU}`], '1965': ['media', `calcolo come propano, 46 cm/s, ${SU}`],
+    '1011': ['media', `n-butano 45 cm/s, ${SU}`], '1077': ['media', `propilene 52 cm/s, ${SU}`], '1010': ['media', `1,3-butadiene 68 cm/s, ${SU}`],
+    '3252': ['bassa', 'R32 6,7 cm/s, scheda tecnica Arkema Forane R-32'], '1966': ['alta', `idrogeno 312 cm/s, ${SU}`] };
+  for (const [u, [r, f]] of Object.entries(REATT)) if (P[u]) { P[u].reattivita = r; P[u].fonteReatt = f; }
   for (const [u, p] of Object.entries(P)) {
     p.fonteLFL = p.fonteLFLx || GESTIS;
     p.contenitori = p.disciolto ? CONT_DISC : p.compresso ? CONT_COMP : CONT_LIQ;
