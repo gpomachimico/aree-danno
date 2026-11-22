@@ -263,7 +263,7 @@ function bindPC(p) {
   const c = $('pcc'); c.onchange = () => { $('massa').value = c.value; };
   // pozza sull'acqua: si propone il luogo del rilascio "sull'acqua" (classe F), modificabile
   const sb = $('subPC'), aq = $('acqua');
-  sb.onchange = () => { if (!aq) return; if (sb.value === 'acqua' && !aq.value) aq.value = 'F'; else if (sb.value !== 'acqua' && aq.value) aq.value = ''; };
+  sb.onchange = () => { if (!aq) return; if (sb.value === 'acqua' && !aq.value) aq.value = 'F'; else if (sb.value !== 'acqua' && aq.value) aq.value = ''; aq.dispatchEvent(new Event('change')); };
 }
 function leggiPC(p) {
   const ms = num('massa'); if (!ms || ms <= 0) throw 'Inserire la massa di liquido rilasciato';
@@ -382,7 +382,7 @@ function aggiungiFumi(m, p, ris, meteo) {
       o.ipotesi.push(
         `Incendio stazionario (${STAZ[m]}): ${(kgs).toFixed(2).replace('.', ',')} kg/s di combustibile bruciato, ${o.portata_kgs.toString().replace('.', ',')} kg/s di ${fu.specie.split(' (')[0]} emessi per tutta la durata dell'incendio`,
         `Pennacchio caldo: calore convettivo ${(Qc / 1000).toFixed(1).replace('.', ',')} MW (${m === 'PF' ? '70% della potenza, il resto irraggiato' : 'potenza meno la quota irraggiata'}); innalzamento di Briggs (formule del modello EPA ISC3: graduale 1,6·F^(1/3)·x^(2/3)/u, finale limitato dalla stabilità con dθ/dz 0,020 K/m in E e 0,035 K/m in F)`,
-        'Dispersione gaussiana con coefficienti di Briggs (rurale), concentrazione al suolo sull\'asse del pennacchio; vento a 10 m usato anche alla quota del pennacchio',
+        `Dispersione gaussiana con coefficienti di Briggs (${$('terr') && $('terr').value === 'urbano' ? 'σz urbano, σy rurale come in ALOHA' : 'rurale'}), concentrazione al suolo sull'asse del pennacchio; vento a 10 m usato anche alla quota del pennacchio`,
         'Colonna "senza innalzamento": stesso calcolo con emissione al suolo. È il limite cautelativo quando il pennacchio non sale (incendio che si spegne o cova, vento forte che abbatte i fumi, edifici vicini): va considerata soprattutto vicino all\'incendio e a fine evento'
       );
     } else {
@@ -469,7 +469,9 @@ function psiM(zeta) {
   if (zeta < 0) { const a = Math.pow(1 - 15 * zeta, 0.25); return 2 * Math.log((1 + a) / 2) + Math.log((1 + a * a) / 2) - 2 * Math.atan(a) + Math.PI / 2; }
   return 0;
 }
-function ventoQuota(u10, z, stab, z0 = Z0_ALOHA) {
+// rugosità del terreno scelto (ALOHA § 4.2.3): aperto 0,03 m, urbano o bosco 1 m, acqua 0,0000026·U10^2,5
+function z0Terreno(u10) { const t = $('terr') ? $('terr').value : 'aperto'; return t === 'urbano' ? 1 : t === 'acqua' ? 0.0000026 * Math.pow(u10, 2.5) : Z0_ALOHA; }
+function ventoQuota(u10, z, stab, z0 = z0Terreno(u10)) {
   const L = lObukhov(stab, z0), f = q => Math.log((q + z0) / z0) - psiM(Number.isFinite(L) ? q / L : 0);
   return u10 * f(z) / f(10);
 }
@@ -481,7 +483,7 @@ function angoloConfidenza(u10, stab = 'D') {
   if (u10 <= 1) return { cerchio: true, gradi: 180, fedele: true,
     testo: `Linee di confidenza secondo il metodo di ALOHA (Jones et al. 2013, NOAA TM NOS OR&R 43, § 4.5.3): con vento di ${f1(u10)} m/s a 10 m si è al limite minimo accettato da ALOHA (1 m/s, circa 2 nodi), e le linee di confidenza formano un cerchio di raggio pari alla distanza, che indica l'elevata incertezza sulla direzione di propagazione. ${NOTA_DEBOLE}` };
   return { cerchio: false, gradi: a, fedele: true,
-    testo: `Linee di confidenza secondo il metodo di ALOHA (Jones et al. 2013, NOAA TM NOS OR&R 43, § 4.5.3): impronta ruotata di ±α attorno alla direzione del vento, con α = arctan(2·σy / (300·U3)) = ${f1(a)}°. U3 = vento a 3 m = ${f1(U3)} m/s, ricavato dal vento a 10 m (${f1(u10)} m/s) con il profilo del vento di ALOHA (§ 4.2.3: profilo logaritmico con la correzione di stabilità di Businger, lunghezza di Obukhov della classe ${stab}, rugosità 0,03 m "Open Country"); 300·U3 = ${Math.round(x5)} m, distanza percorsa in 5 minuti; σy = ${f1(sy)} m a quella distanza (Briggs rurale, come ALOHA § 4.3.1). Metodo fedele ad ALOHA (formula dell'angolo, profilo del vento e σy secondo la documentazione tecnica ALOHA 5.4.4). ${NOTA_DEBOLE}` };
+    testo: `Linee di confidenza secondo il metodo di ALOHA (Jones et al. 2013, NOAA TM NOS OR&R 43, § 4.5.3): impronta ruotata di ±α attorno alla direzione del vento, con α = arctan(2·σy / (300·U3)) = ${f1(a)}°. U3 = vento a 3 m = ${f1(U3)} m/s, ricavato dal vento a 10 m (${f1(u10)} m/s) con il profilo del vento di ALOHA (§ 4.2.3: profilo logaritmico con la correzione di stabilità di Businger, lunghezza di Obukhov della classe ${stab}, rugosità ${String(+z0Terreno(u10).toPrecision(2)).replace('.', ',')} m, terreno ${$('terr') ? $('terr').selectedOptions[0].text.split(' –')[0].toLowerCase() : 'aperto'}); 300·U3 = ${Math.round(x5)} m, distanza percorsa in 5 minuti; σy = ${f1(sy)} m a quella distanza (Briggs rurale, come ALOHA § 4.3.1). Metodo fedele ad ALOHA (formula dell'angolo, profilo del vento e σy secondo la documentazione tecnica ALOHA 5.4.4). ${NOTA_DEBOLE}` };
 }
 // Nota sulla rappresentazione grafica e sulla dipendenza dal vento, per ogni scenario (richiesta di Luca, 19/11/2026)
 const EFFETTO = [[/Scoppio del recipiente/, 'l\'onda d\'urto dello scoppio e la proiezione dei frammenti non dipendono'], [/Pool fire|Jet fire/, 'l\'irraggiamento termico stazionario non dipende'], [/BLEVE/, 'l\'irraggiamento della fireball non dipende'], [/TNT/, 'la sovrappressione dell\'esplosione non dipende'], [/Distanze ERG/, 'le distanze fisse dell\'ERG per questa voce non dipendono']];
@@ -585,6 +587,19 @@ function dirVentoScelta() {
   return d % 360;
 }
 const nomeSettore = d => SETTORI16[Math.round(d / 22.5) % 16];
+// infiltrazione negli edifici (ALOHA Tech. Doc. 5.4.4, § 4.6; Sherman 1980; Grimsrud, Sherman e Sonderegger 1983)
+function edificioScelto() {
+  if (!$('edOn') || !$('edOn').checked) return null;
+  const piani = +$('edPiani').value, H = piani === 1 ? 2.5 : 5, A = 160, V = A * H, Ae = 0.00059 * A, R = 0.5, Ti = 293.15, Csh = +$('edRip').value;
+  const ach = num('edAch'), tipo = `${piani === 1 ? 'casa a un piano' : 'edificio a due piani'}, ${Csh === 0.24 ? 'riparato' : 'non riparato'}, porte e finestre chiuse`;
+  if (ach && ach > 0) return { calc: () => ({ tau_s: 3600 / ach, descr: `${tipo}; ${String(ach).replace('.', ',')} ricambi d'aria all'ora indicati dall'utente` }) };
+  // costante di infiltrazione per il meteo di ciascuno scenario (vento alla quota dell'edificio e differenza di temperatura)
+  return { calc: (u10, stab, T_C) => {
+    const Te = (T_C ?? 20) + 273.15, fs = (1 + R / 2) / 3 * Math.sqrt(9.81 * H / Ti), Qs = Ae * fs * Math.sqrt(Math.abs(Te - Ti));
+    const UH = ventoQuota(u10, H, stab), Qw = Ae * Csh * Math.cbrt(1 - R) * UH, tau = Math.sqrt(V * V / (Qs * Qs + Qw * Qw));
+    return { tau_s: tau, descr: `${tipo}; τE = (V² / (Qs² + Qw²))^½ con V = ${V} m³, area di perdita efficace ${Ae.toFixed(3).replace('.', ',')} m² (0,00059 × 160 m²), effetto camino Qs = Ae·fs·√|ΔT| (ΔT ${Math.round(Math.abs(Te - Ti))} K rispetto ai 20 °C interni) e vento Qw = Ae·${String(Csh).replace('.', ',')}·(1 − R)^(1/3)·U_H (R = 0,5; U_H = ${UH.toFixed(1).replace('.', ',')} m/s a ${String(H).replace('.', ',')} m): ${(3600 / tau).toFixed(2).replace('.', ',')} ricambi all'ora` };
+  } };
+}
 function meteoScelto() {
   const base = meteoUser ? [{ stabilita: $('stab').value, u_ms: num('vento') || 1, T_C: num('temp') ?? 20 }] : M.METEO_PREDEFINITO;
   const aq = $('acqua') ? $('acqua').value : '';
@@ -597,6 +612,12 @@ function notaAcqua(r) {
   return `Luogo del rilascio: sull'acqua (mare, specchio portuale). ALOHA assume sopra l'acqua condizioni stabili indipendentemente da insolazione e vento (Tech. Doc. 5.4.4, § 4.2.1), senza indicare la classe; l'app usa la classe ${aq} al posto ${orig}${aq === 'F' ? ' (classe F: scelta predefinita, cautelativa, come lo scenario peggiore EPA; scelta di Luca del 21/11/2026)' : ' (classe E: scelta dell\'utente fra le due proposte, adatta a vento sostenuto, cielo coperto o aria più fredda dell\'acqua; predefinita sarebbe F, scelta di Luca del 21/11/2026)'}. In classe F le distanze tossiche sono circa doppie rispetto alla classe E.`;
 }
 
+// terreno, luogo del rilascio ed edificio (22/11/2026)
+if ($('terr')) {
+  $('terr').addEventListener('change', () => { if ($('terr').value === 'acqua' && !$('acqua').value) $('acqua').value = 'F'; });
+  $('acqua').addEventListener('change', () => { if ($('acqua').value) $('terr').value = 'acqua'; else if ($('terr').value === 'acqua') $('terr').value = 'aperto'; });
+  $('edOn').addEventListener('change', () => $('edBox').classList.toggle('hide', !$('edOn').checked));
+}
 $('mPre').onclick = () => { meteoUser = false; $('mPre').classList.add('on'); $('mUser').classList.remove('on'); $('meteoUser').classList.add('hide'); };
 $('mUser').onclick = () => { meteoUser = true; $('mUser').classList.add('on'); $('mPre').classList.remove('on'); $('meteoUser').classList.remove('hide'); };
 
@@ -610,6 +631,8 @@ $('calc').onclick = () => {
   const m = cur.modello, sost = `UN ${cur.u} ${cur.psn}`;
   risultati = []; tabSel = 0;
   try {
+    M.impostaTerreno($('terr') ? $('terr').value : 'aperto');
+    M.impostaEdificio(edificioScelto());
     if (p.criogenico && ['GL', 'FF', 'VCE', 'PF'].includes(m)) {
       const { ms, pc, T, cont } = leggiPC(p), acqua = $('subPC').value === 'acqua';
       if (m === 'PF') {
@@ -813,6 +836,8 @@ $('calc').onclick = () => {
       risultati.forEach(r => { r.meteoReale = mv; r.rapprScelta = rs;
         if (dv !== null) { r.dirVento = dv; r.rappr = rs === 'aloha' && r.impronta && !r.soloERG && !/VCE/.test(r.scenario) ? 'aloha' : 'erg'; } }); if (mv) applicaMeteoServizio(risultati);
       if (!$('meteobox').classList.contains('hide')) risultati.forEach(r => { if (r.meteo) { r.ipotesi.push(notaAcqua(r)); if ($('acqua').value) r.meteo.origine = (meteoUser ? r.meteo.origine : 'predefinito (venti 5 e 2 m/s)') + `, classe ${$('acqua').value} per rilascio sull'acqua`; } });
+      risultati.forEach(r => { if (r.alChiuso) r.dettagli.distanze_al_chiuso = Object.entries(r.alChiuso.distanze_m).map(([k, v]) => `${k} ${v === null ? 'non raggiunta' : Number.isFinite(v) ? v + ' m' : '> limite'}`).join(' · '); });
+      risultati.forEach(r => { if (r.meteo) r.meteo.terreno = $('terr') ? $('terr').selectedOptions[0].text.split(' –')[0] : 'Aperto'; });
       risultati.forEach(r => { if (r.meteo && r.meteo.vento_ms < 1) r.avvisi = [...(r.avvisi || []), `Vento di ${String(r.meteo.vento_ms).replace('.', ',')} m/s, sotto 1 m/s a 10 m: i modelli di dispersione non sono affidabili in condizioni di calma (ALOHA, Tech. Doc. 5.4.4 § 1.2, si applica solo con vento oltre 1 m/s). Considerare la nube ferma attorno alla sorgente e le distanze come indicative.`]; }); }
     if (cur.classe.startsWith('1.')) {
       const { nem } = leggiNEM(), na = num('nemart');

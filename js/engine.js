@@ -116,6 +116,37 @@ const BRIGGS_RURALE = {
   F: x => [0.04 * x / Math.sqrt(1 + 1e-4 * x), 0.016 * x / (1 + 3e-4 * x)]
 };
 
+// terreno (V2 22/11/2026, ALOHA Tech. Doc. 5.4.4 § 4.3.1 e Tabella 13): con rugosità grande (urbano o bosco, z0 ≥ 20 cm) σz urbano di Briggs,
+// σy sempre rurale come in ALOHA (i coefficienti urbani di σy derivano da medie di 1 h)
+const BRIGGS_URBANO_SZ = {
+  A: x => 0.24 * x * Math.sqrt(1 + 1e-3 * x), B: x => 0.24 * x * Math.sqrt(1 + 1e-3 * x), C: x => 0.20 * x,
+  D: x => 0.14 * x / Math.sqrt(1 + 3e-4 * x), E: x => 0.08 * x / Math.sqrt(1 + 1.5e-3 * x), F: x => 0.08 * x / Math.sqrt(1 + 1.5e-3 * x)
+};
+let TERRENO = 'aperto', EDIFICIO = null;
+function impostaTerreno(t) { TERRENO = t || 'aperto'; }
+function impostaEdificio(e) { EDIFICIO = e || null; }
+function sigmaBriggs(stab) {
+  const r = BRIGGS_RURALE[stab];
+  return TERRENO === 'urbano' ? x => [r(x)[0], BRIGGS_URBANO_SZ[stab](x)] : r;
+}
+function testoTerreno() {
+  return { aperto: 'terreno aperto (rugosità piccola, coefficienti rurali)', urbano: 'terreno urbano o bosco (rugosità grande: σz urbano di Briggs, σy rurale come in ALOHA)', acqua: 'acqua aperta (rugosità piccola, coefficienti rurali)' }[TERRENO];
+}
+// concentrazione all'interno degli edifici (ALOHA § 4.6): filtro del primo ordine, dCi/dt = (Co − Ci)/τE; per un'esposizione esterna
+// costante di durata T il massimo interno è Co·(1 − e^(−T/τE)): la soglia interna equivale a una soglia esterna divisa per questo fattore
+function distanzeAlChiuso(soglie_ppm, solver, Texp_s, met) {
+  if (!EDIFICIO) return null;
+  const ed = EDIFICIO.calc(met.u_ms, met.stabilita, met.T_C);
+  const f = 1 - Math.exp(-Texp_s / ed.tau_s), d = {};
+  for (const [k, ppm] of Object.entries(soglie_ppm)) { const x = solver(ppm / f); d[k] = x === null ? null : r1(x); }
+  return { tau_h: +(ed.tau_s / 3600).toFixed(2), fattore: +f.toFixed(3), esposizione_min: +(Texp_s / 60).toFixed(1), distanze_m: d, descr: ed.descr };
+}
+function ipotesiAlChiuso(c) {
+  if (!c) return '';
+  const nf = v => String(v).replace('.', ',');
+  return `Persone al chiuso (ALOHA Tech. Doc. 5.4.4, § 4.6): ${c.descr}; costante di infiltrazione τE = ${nf(c.tau_h)} h; con un'esposizione esterna di ${nf(c.esposizione_min)} min la concentrazione interna arriva al ${nf(+(c.fattore * 100).toFixed(1))}% di quella esterna. Distanze per chi resta al chiuso: ${Object.entries(c.distanze_m).map(([k, v]) => `${k} ${v === null ? 'non raggiunta' : Number.isFinite(v) ? v + ' m' : 'oltre il limite di calcolo'}`).join(', ')}. Vale finché la nube passa: dopo il passaggio occorre aerare l'edificio, perché la concentrazione interna scende lentamente`;
+}
+
 function evaporazioneEPA({ area_m2, u_ms, pm, Pv_kPa, T_K }) {
   // EPA OCA 1999, eq. 3-3: QR[lb/min] = 0.284 U^0.78 MW^(2/3) A[ft²] VP[mmHg] / (82.05 T)
   const A_ft2 = area_m2 * 10.7639, VP_mmHg = Pv_kPa * 7.50062;
@@ -172,7 +203,7 @@ function gaussiano({ volume_m3, densita_soluzione, frazione_tossico = 1, pm, Pv_
     durata_min = massaTossico / Q / 60;
   }
   const Dp = Math.sqrt(4 * A / Math.PI);
-  const sig = BRIGGS_RURALE[stabilita];
+  const sig = sigmaBriggs(stabilita);
   // sorgente virtuale: sigma_y(xv) = Dp / 4,3
   const xv = bisect(x => Dp / 4.3 - sig(x)[0], 1e-3, 1e5);
   const C_mgm3 = x => { const [sy, sz] = sig(x + xv); return Q * 1e6 / (Math.PI * sy * sz * u_ms); };
@@ -183,16 +214,18 @@ function gaussiano({ volume_m3, densita_soluzione, frazione_tossico = 1, pm, Pv_
     d[k] = r1(distanzaSoglia(C_mgm3, ppm2mg(ppm), 1, 50000));
     if (d[k] && Number.isFinite(d[k])) impronta[k] = improntaCurva(C_mgm3, x => sig(x + xv)[0], ppm2mg(ppm), d[k]);
   }
+  const alChiuso = distanzeAlChiuso(soglie_ppm, ppm => distanzaSoglia(C_mgm3, ppm2mg(ppm), 1, 50000), durata_min * 60, { u_ms, stabilita, T_C: T_K - 273.15 });
   return {
     scenario: `Dispersione gaussiana${foro ? ' – perdita continua da foro' : ''} – meteo ${stabilita}${u_ms}`, sostanza,
-    distanze_m: d, impronta,
+    distanze_m: d, impronta, alChiuso,
     zone_m: { I: d.LC50, II: d.IDLH, III: d.LOC },
     dettagli: { area_pozza_m2: +A.toFixed(1), ...(pz ? { portata_liquido_kg_s: +pz.mL.toFixed(3), tempo_area_max_min: +(pz.t_Amax_s / 60).toFixed(0) } : {}), portata_evaporazione_kg_s: +Q.toFixed(4), portata_kg_min: +(Q * 60).toFixed(2), durata_rilascio_min: +durata_min.toFixed(0), sorgente_virtuale_m: +xv.toFixed(1), conc_100m_ppm: r1(C_mgm3(100) / ppm2mg(1)) },
     pozza: pz,
     ipotesi: [
       ...(pz ? pz.ipotesi : [area_m2 ? `Pozza confinata ${A} m²` : `Spandimento non confinato, spessore ${String(spessore_m * 100).replace('.', ',')} cm (${spessore_m < 0.008 ? 'ALOHA 5.4.4, § 3.4.4.2: la pozza smette di allargarsi a 5 mm, Briscoe e Shaw 1980' : 'EPA OCA 1999'})`]),
       `Evaporazione EPA OCA 1999 eq. 3-3, tensione di vapore ${Pv_kPa} kPa a ${(T_K - 273.15).toFixed(0)} °C`,
-      `Meteo: classe di stabilità ${stabilita}, vento ${u_ms} m/s; coefficienti di dispersione di Briggs, terreno aperto (rurale)`,
+      `Meteo: classe di stabilità ${stabilita}, vento ${u_ms} m/s; coefficienti di dispersione di Briggs, ${testoTerreno()}`,
+      ipotesiAlChiuso(alChiuso),
       'Rilascio continuo a livello del suolo, concentrazione sull\'asse del pennacchio a livello del suolo, stato stazionario',
       'Gas trattato come passivo: per gas più pesanti dell\'aria il modello è indicativo nel campo vicino',
       nota_soglie
@@ -431,7 +464,7 @@ function pozzaCriogenica({ massa_kg, prop, substrato = 'suolo', area_m2 = null, 
 }
 const X_MAX_GL = 10000;   // limite di calcolo: validità dei coefficienti di Briggs (fino a 10 km)
 const itn = (v, n) => v.toFixed(n).replace('.', ',');
-function gasLiquefatto({ massa_kg, scenario = 'tot', d_mm = 10, h_m = 1, P_bar = null, prop, soglie_ppm, stabilita = 'D', u_ms = 5, T_C = 20, sostanza = '', nota_soglie = '', contenitore = '', generato = null }) {
+function gasLiquefatto({ massa_kg, scenario = 'tot', d_mm = 10, h_m = 1, P_bar = null, prop, soglie_ppm, stabilita = 'D', u_ms = 5, T_C = 20, sostanza = '', nota_soglie = '', contenitore = '', generato = null, noChiuso = false }) {
   const Ta = T_C + 273.15, M = prop.pm / 1000;
   // generato: gas che si sviluppa da una reazione (es. ipoclorito + acido → cloro), { durata_s, ipotesi }: emissione costante a temperatura ambiente
   if (generato) { scenario = 'tot'; P_bar = 1.01325; }
@@ -469,8 +502,8 @@ function gasLiquefatto({ massa_kg, scenario = 'tot', d_mm = 10, h_m = 1, P_bar =
   const nu0 = bmNube({ V0, rho_s, rho_a, u: u_ms, Tp });
   // le curve di Britter-McQuaid danno il rapporto rispetto alla sorgente: con la miscela si moltiplica per la frazione molare y
   const pl = yS === 1 ? pl0 : { ...pl0, cm: x => pl0.cm(x) * yS }, nu = yS === 1 ? nu0 : { ...nu0, cm: x => nu0.cm(x) * yS };
-  // gaussiano passivo, sorgente puntiforme al suolo (Briggs rurale)
-  const sig = BRIGGS_RURALE[stabilita];
+  // gaussiano passivo, sorgente puntiforme al suolo (Briggs; σz urbano se il terreno è urbano)
+  const sig = sigmaBriggs(stabilita);
   const ppmG = x => { const [sy, sz] = sig(x); return Q / (Math.PI * sy * sz * u_ms) / (P_ATM * M / (R_GAS * Ta)) * 1e6; };
   // nube istantanea passiva (CCPS 1999, coefficienti puff): picco al suolo al centro della nube
   const sigP = PUFF_CCPS[stabilita];
@@ -510,6 +543,7 @@ function gasLiquefatto({ massa_kg, scenario = 'tot', d_mm = 10, h_m = 1, P_bar =
     impronta[k] = improntaCurva(cv.f, cv.sy, ppm, x);
     gov[k] = `${n}: ${den ? (x <= xt ? 'gas denso (Britter-McQuaid)' : 'gas denso, poi passivo oltre ' + Math.round(xt) + ' m') : 'gas passivo (gaussiano)'}`;
   }
+  const alChiuso = noChiuso ? null : distanzeAlChiuso(soglie_ppm, ppm => { const v = curve.map(([, c]) => distanzaSoglia(c.f, ppm, 0.01, X_MAX_GL)).filter(x => x !== null); return v.length ? Math.min(...v) : null; }, durata, { u_ms, stabilita, T_C });
   if (aer && !aer.leggera && (pl.denso || nu.denso)) avvisi.push(`Nube con aerosol trattata come gas denso (miscela fredda ${itn(aer.rho, 2)} kg/m³). L'umidità dell'aria, trascurata, condensa e cede calore: la nube reale è un po' meno fredda e meno densa. Con il rilascio in fase gassosa (foro in alto) non si forma aerosol.`);
   if (!pl.denso && !nu.denso) avvisi.push(rho_s < rho_a ? `Il vapore puro (${itn(rho_s, 2)} kg/m³) è più leggero dell'aria (${itn(rho_a, 2)} kg/m³): calcolo con il solo modello gaussiano passivo. Un rilascio bifase con aerosol (tipico dell'ammoniaca) può però formare una nube fredda più pesante dell'aria che resta al suolo.` : 'Criterio di Britter-McQuaid non soddisfatto: nube a comportamento passivo, calcolo con il modello gaussiano');
   if (pl.fuoriCampo || nu.fuoriCampo) avvisi.push('Parametro α di Britter-McQuaid fuori dal campo −1…1 delle correlazioni: risultato del modello di gas denso indicativo');
@@ -518,7 +552,7 @@ function gasLiquefatto({ massa_kg, scenario = 'tot', d_mm = 10, h_m = 1, P_bar =
   if (durata > 3600) avvisi.push(`Durata del rilascio stimata ${Math.round(durata / 60)} min: le soglie LC50 riferite a 30–60 min sono superate in durata, la zona I è sottostimata per esposizioni lunghe`);
   return {
     scenario: `${generato ? 'Gas tossico sviluppato da reazione' : 'Gas tossico liquefatto'} – meteo ${stabilita}${u_ms}`, sostanza,
-    distanze_m: d, oltre_m: X_MAX_GL, impronta,
+    distanze_m: d, oltre_m: X_MAX_GL, impronta, alChiuso,
     zone_m: { I: d.LC50, II: d.IDLH, III: d.LOC },
     interno: { Q, T_s, mNube },
     dettagli: {
@@ -538,7 +572,8 @@ function gasLiquefatto({ massa_kg, scenario = 'tot', d_mm = 10, h_m = 1, P_bar =
         : `Nube alla sorgente: vapore puro a ${itn(Ts_K - 273.15, 1)} °C, densità ${itn(rho_s, 2)} kg/m³ contro ${itn(rho_a, 2)} kg/m³ dell'aria; correzione non isoterma di Britter-McQuaid${aer ? `. Con l'aerosol la miscela con l'aria (${itn(aer.rho, 2)} kg/m³ a ${itn(aer.T - 273.15, 1)} °C) non risulta più pesante dell'aria: si usa il vapore puro` : ''}`,
       'Gas denso: correlazioni di Britter e McQuaid (Workbook on the Dispersion of Dense Gases, HSE 1988) nella forma di AIChE/CCPS (1999), terreno piano senza ostacoli, concentrazioni medie su 10 min, vento a 10 m; il modello non dipende dalla classe di stabilità',
       `Durata finita del rilascio (${itn(durata / 60, 1)} min): la concentrazione non supera né quella del pennacchio stazionario con la stessa portata né quella della nube istantanea con la stessa massa; per ciascun modello si adotta il minore dei due risultati`,
-      `Oltre la fine delle curve di Britter-McQuaid (rapporto di concentrazione 0,002) la nube è trattata come passiva: modello gaussiano con sorgenti virtuali scelte in modo che, nel punto di passaggio, larghezza della nube e concentrazione siano quelle del modello di gas denso, classe ${stabilita}, vento ${u_ms} m/s; pennacchio con coefficienti di Briggs (rurale), nube istantanea con coefficienti CCPS 1999 (concentrazione di picco). Se il criterio di gas denso non è soddisfatto si usa solo il modello gaussiano con sorgente puntiforme al suolo`,
+      `Oltre la fine delle curve di Britter-McQuaid (rapporto di concentrazione 0,002) la nube è trattata come passiva: modello gaussiano con sorgenti virtuali scelte in modo che, nel punto di passaggio, larghezza della nube e concentrazione siano quelle del modello di gas denso, classe ${stabilita}, vento ${u_ms} m/s; pennacchio con coefficienti di Briggs per ${testoTerreno()}, nube istantanea con coefficienti CCPS 1999 (concentrazione di picco). Se il criterio di gas denso non è soddisfatto si usa solo il modello gaussiano con sorgente puntiforme al suolo${TERRENO === 'urbano' ? '. Le correlazioni di Britter-McQuaid e i coefficienti della nube istantanea non dipendono dalla rugosità: con il terreno urbano cambia solo il pennacchio passivo (ALOHA usa invece z0 = 0,10 m nel modello di gas denso)' : ''}`,
+      ipotesiAlChiuso(alChiuso),
       nota_soglie
     ].filter(Boolean),
     avvisi
@@ -615,7 +650,7 @@ function jetFire({ massa_kg, fase = 'gas', d_mm = 10, h_m = 1, P_bar = null, pro
 // Flash fire: dispersione (Britter-McQuaid + gaussiano, come per i gas tossici) fino a LFL e ½ LFL (D.M. 9/5/2001)
 function flashFire(param) {
   const p = param.prop, lfl = p.LFL * 1e4;
-  const r = gasLiquefatto({ ...param, soglie_ppm: { LFL: lfl, mezzo_LFL: lfl / 2 } });
+  const r = gasLiquefatto({ ...param, soglie_ppm: { LFL: lfl, mezzo_LFL: lfl / 2 }, noChiuso: true });
   r.scenario = `Flash fire – meteo ${param.stabilita}${param.u_ms}`;
   r.distanze_m = { elevata_letalita: r.distanze_m.LFL, inizio_letalita: r.distanze_m.mezzo_LFL };
   r.impronta = { elevata_letalita: r.impronta.LFL, inizio_letalita: r.impronta.mezzo_LFL };
@@ -760,7 +795,7 @@ function distanzaMaxSoglia(g, s, xmin, xmax) {
 function fumiIncendio({ portata_kgs, Qc_kW, pm, soglie_ppm, meteo = METEO_PREDEFINITO }) {
   const M = pm / 1000;
   return meteo.map(m => {
-    const Ta = (m.T_C ?? 20) + 273.15, u = m.u_ms, sig = BRIGGS_RURALE[m.stabilita];
+    const Ta = (m.T_C ?? 20) + 273.15, u = m.u_ms, sig = sigmaBriggs(m.stabilita);
     const rho = P_ATM * 0.028964 / (R_GAS * Ta), F = G0 * Qc_kW * 1000 / (Math.PI * 1005 * rho * Ta);
     const kgppm = P_ATM * M / (R_GAS * Ta) * 1e-6;
     const C = (x, H) => { const [sy, sz] = sig(x); return portata_kgs / (Math.PI * sy * sz * u) * Math.exp(-H * H / (2 * sz * sz)) / kgppm; };
@@ -891,6 +926,6 @@ function gaussianoMeteo(param, meteo = METEO_PREDEFINITO) {
   });
 }
 
-const api = { BRIGGS_RURALE, SUBSTRATI, pozzaCriogenica, miscelaAerosol, SOGLIE, METEO_PREDEFINITO, poolFire, bleve, gaussiano, gaussianoMeteo, controllaMeteo, tnt, kingeryBulmash_bar, kinneyGraham_bar, fattoreVistaCilindro, evaporazioneEPA, gasLiquefatto, gasLiquefattoMeteo, jetFire, flashFire, flashFireMeteo, vce, vceMeteo, fumiIncendio, innalzamento, qdDoD, bmPennacchio, bmNube, portataForo, psatBar, pozzaDaForo, bleveOnda };
+const api = { BRIGGS_RURALE, BRIGGS_URBANO_SZ, impostaTerreno, impostaEdificio, SUBSTRATI, pozzaCriogenica, miscelaAerosol, SOGLIE, METEO_PREDEFINITO, poolFire, bleve, gaussiano, gaussianoMeteo, controllaMeteo, tnt, kingeryBulmash_bar, kinneyGraham_bar, fattoreVistaCilindro, evaporazioneEPA, gasLiquefatto, gasLiquefattoMeteo, jetFire, flashFire, flashFireMeteo, vce, vceMeteo, fumiIncendio, innalzamento, qdDoD, bmPennacchio, bmNube, portataForo, psatBar, pozzaDaForo, bleveOnda };
 if (typeof module !== 'undefined') module.exports = api;
 if (typeof window !== 'undefined') window.MotoreAree = api;

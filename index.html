@@ -19,7 +19,7 @@
   <div class="hrow">
     <div>
       <h1>Aree di danno e di sicurezza</h1>
-      <p>v1.13-beta · stime di supporto tecnico (parere tecnico), non atti amministrativi <span id="netstato"></span></p>
+      <p>v1.14-beta · stime di supporto tecnico (parere tecnico), non atti amministrativi <span id="netstato"></span></p>
     </div>
     <button id="btnSet" class="icon" type="button" aria-label="Impostazioni">⚙</button>
   </div>
@@ -56,6 +56,12 @@
 </div>
 <label for="acqua">Luogo del rilascio</label><select id="acqua"><option value="">Sulla terraferma (stabilità del meteo scelto)</option><option value="F">Sull'acqua (mare, specchio portuale) – classe F, predefinita</option><option value="E">Sull'acqua – classe E (vento sostenuto, cielo coperto, aria più fredda dell'acqua)</option></select>
 <p class="small">Sopra l'acqua ALOHA assume sempre condizioni stabili (Tech. Doc. 5.4.4, § 4.2.1): la classe scelta sostituisce quella del meteo, predefinito o reale.</p>
+<label for="terr">Terreno attorno al rilascio</label><select id="terr"><option value="aperto" selected>Aperto – campagna, aree portuali aperte (rugosità 3 cm)</option><option value="urbano">Urbano o bosco – edifici, alberi, impianti (rugosità 1 m)</option><option value="acqua">Acqua aperta (rugosità dal vento)</option></select>
+<p class="small">Come in ALOHA (Tech. Doc. 5.4.4, § 4.2.3 e § 4.3.1): il terreno urbano aumenta la diluizione verticale del pennacchio passivo e cambia il profilo del vento. Il modello non vede i singoli edifici: con edifici alti o canyon urbani i risultati sono indicativi.</p>
+<label style="display:flex;gap:10px;align-items:center;font-size:15px;margin-top:12px"><input id="edOn" type="checkbox" style="width:22px;height:22px;flex:none"> Calcola anche le distanze per chi resta al chiuso (dispersione tossica)</label>
+<div id="edBox" class="hide"><div class="row"><div><label for="edPiani">Edificio</label><select id="edPiani"><option value="1">Casa a un piano (2,5 m)</option><option value="2" selected>Edificio a due piani (5 m)</option></select></div><div><label for="edRip">Esposizione al vento</label><select id="edRip"><option value="0.32" selected>Non riparato</option><option value="0.24">Riparato da alberi o altri edifici</option></select></div></div>
+<div class="row"><div><label for="edAch">Ricambi d'aria all'ora – facoltativo</label><input id="edAch" type="number" inputmode="decimal" step="any" placeholder="calcolato come ALOHA"></div><div></div></div>
+<p class="small">Infiltrazione come in ALOHA (§ 4.6, metodo di Sherman): pianta di 160 m², area di perdita efficace 0,00059 × pianta, temperatura interna 20 °C. Porte e finestre chiuse, ventilazione spenta.</p></div>
 <div id="meteoUser" class="hide">
 <button type="button" id="btnMeteo" class="sec">Meteo attuale dal servizio Open-Meteo (posizione sulla mappa o GPS)</button>
 <p class="small" id="meteoInfo"></p>

@@ -1,6 +1,6 @@
 /* Estensioni dell'app installabile: mappa, GPS, impostazioni, report stampabile, offline */
 'use strict';
-const VERSIONE = '1.13-beta';
+const VERSIONE = '1.14-beta';
 
 // ---------- impostazioni (solo su questo dispositivo) ----------
 const FIRMATARIO_DEFAULT = { nome: 'Dott. Gianluca POMA', qualifica: 'Consulente Chimico di Porto' };
@@ -262,7 +262,7 @@ function testoReport() {
   t += blTesto(r.bl);
   t += `\nRAPPRESENTAZIONE GRAFICA E VENTO\n${notaVento(r).map(x => '- ' + x).join('\n')}\n`;
   t += `\nIPOTESI\n${r.ipotesi.map(x => '- ' + x).join('\n')}\n`;
-  if (r.meteo) t += `- Meteo ${r.meteo.origine}: ${r.meteo.stabilita}, ${r.meteo.vento_ms} m/s, ${r.meteo.temperatura_C} °C\n`;
+  if (r.meteo) t += `- Meteo ${r.meteo.origine}: ${r.meteo.stabilita}, ${r.meteo.vento_ms} m/s, ${r.meteo.temperatura_C} °C${r.meteo.terreno ? ', terreno ' + r.meteo.terreno.toLowerCase() : ''}\n`;
   if (r.avvisi && r.avvisi.length) t += `\nAVVISI\n${r.avvisi.map(x => '- ' + x).join('\n')}\n`;
   t += `\nERG 2024 Guida ${cur.guida} (${g.titolo_it || g.titolo}):\n${ergRighe(g, cur.guida).map(([a, b]) => '- ' + a + ': ' + b).join('\n')}\n`;
   if (cur.tih) t += `${NOTA_T1}\n`;
@@ -304,7 +304,7 @@ $('print').onclick = () => {
   if (r.bl) h += `<h2>BLEVE – onda d'urto e frammenti</h2>${blHTML(r.bl, esc).replace(/class="small"/g, 'class="nota"').replace(/class="ip"/g, '').replace(/class="warn"/g, 'class="nota"')}`;
   if (r.qd) h += `<h2>Distanze in funzione della NEM (DoD)</h2>${qdHTML(r.qd, esc).replace(/class="small"/g, 'class="nota"').replace(/class="ip"/g, '').replace(/class="warn"/g, 'class="nota"')}`;
   if (r.fumi) h += `<h2>Fumi tossici di combustione</h2>${fumiHTML(r.fumi, esc).replace(/class="small"/g, 'class="nota"').replace(/class="ip"/g, '')}`;
-  h += `<h2>Ipotesi di calcolo</h2><ul>${r.ipotesi.map(x => `<li>${esc(x)}</li>`).join('')}${r.meteo ? `<li>Meteo ${r.meteo.origine}: ${r.meteo.stabilita}, ${r.meteo.vento_ms} m/s, ${r.meteo.temperatura_C} °C</li>` : ''}</ul>`;
+  h += `<h2>Ipotesi di calcolo</h2><ul>${r.ipotesi.map(x => `<li>${esc(x)}</li>`).join('')}${r.meteo ? `<li>Meteo ${r.meteo.origine}: ${r.meteo.stabilita}, ${r.meteo.vento_ms} m/s, ${r.meteo.temperatura_C} °C${r.meteo.terreno ? ', terreno ' + esc(r.meteo.terreno.toLowerCase()) : ''}</li>` : ''}</ul>`;
   if (r.avvisi && r.avvisi.length) h += `<h2>Avvisi</h2><ul>${r.avvisi.map(x => `<li>${esc(x)}</li>`).join('')}</ul>`;
   h += `<h2>ERG 2024 – Guida ${esc(cur.guida)}</h2><p class="nota">${esc(g.titolo_it || g.titolo)}</p><table>${ergRighe(g, cur.guida).map(([a, b]) => `<tr><td>${esc(a)}</td><td>${esc(b)}</td></tr>`).join('')}</table>`;
   if (cur.tih) h += `<p class="nota">${esc(NOTA_T1)}</p>`;
