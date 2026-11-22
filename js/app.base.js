@@ -60,7 +60,10 @@ function explFields(conCalcolo, p) {
       <p class="small">NEM per collo: dal documento di classificazione o dalla marcatura del collo.</p></div>
     ${conCalcolo ? `<div class="row">${f('fatt', 'Fattore TNT', p.fattore)}<div></div></div><p class="small">Fattore: ${p.fonte}.</p>` :
       (/^1\.[15]/.test(cur.classe) ? `<p class="small">Divisione ${cur.classe} (esplosione di massa): fattore TNT non ancora verificato per questa voce, quindi l'app applica solo le distanze ERG. Il calcolo della sovrappressione è disponibile per le voci con fattore verificato (es. UN 0209, 0483, 0484, 0221, 0286).</p>` : `<p class="small">Divisione ${cur.classe}: nessuna esplosione di massa; nella prima versione si applicano le distanze ERG.</p>`)}
-    ${/^1\.2/.test(cur.classe) ? `<div class="row">${f('nemart', 'NEM del singolo articolo (kg) – facoltativa', '', 'placeholder="non nota"')}<div></div></div><p class="small">Serve a distinguere HD 1.2.1 (oltre 0,73 kg per articolo) da HD 1.2.2 per le distanze DoD; se non è nota si usa HD 1.2.1 (cautelativo).</p>` : ''}
+    ${/^1\.2/.test(cur.classe) ? `<div class="row">${f('nemart', 'NEM del singolo articolo (kg) – facoltativa', '', 'placeholder="non nota"')}<div></div></div><p class="small">Serve a distinguere HD 1.2.1 (oltre 0,73 kg per articolo) da HD 1.2.2 per le distanze DoD; se non è nota si usa HD 1.2.1 (cautelativo).</p>
+      ${chk('hd123', 'Articoli classificati HD 1.2.3 dal mittente (munizioni insensibili, classificazione DoD o NATO)')}
+      <div id="boxMCE" class="hide"><div class="row">${f('mce', 'NEM dell\'evento massimo credibile, MCE (kg) – facoltativa', '', 'placeholder="= NEM del singolo articolo"')}<div></div></div><p class="small">HD 1.2.3: distanze HD 1.3 sulla NEM totale, con il minimo dei frammenti pericolosi dell'MCE (DoD V3.E3.2.13). Se l'MCE non è indicato si usa la NEM del singolo articolo, altrimenti quella totale.</p></div>` : ''}
+    ${/^1\.6/.test(cur.classe) ? `<div class="row">${f('nemart', 'NEM dell\'articolo più grande (kg) – facoltativa', '', 'placeholder="non nota"')}<div></div></div><p class="small">HD 1.6: le distanze DoD dipendono dalla NEM del singolo articolo più grande; se non è nota si usa la NEM totale (molto cautelativo).</p>` : ''}
     ${/^1\.[15]/.test(cur.classe) ? chk('calibro', 'Bombe o proiettili di calibro ≥ 127 mm') + chk('ferro', 'Carico su carro ferroviario') : ''}
     ${chk('parte', 'Coinvolta una parte consistente del carico, senza incendio (ERG "Large Spill")')}
     ${chk('fuoco', 'Incendio in atto o che può raggiungere il carico')}
@@ -86,6 +89,7 @@ function bindExtra() {
   const a = $('nemTot'), b = $('nemCol');
   if (a) { a.onclick = () => { a.classList.add('on'); b.classList.remove('on'); $('boxTot').classList.remove('hide'); $('boxCol').classList.add('hide'); };
            b.onclick = () => { b.classList.add('on'); a.classList.remove('on'); $('boxCol').classList.remove('hide'); $('boxTot').classList.add('hide'); }; }
+  const h3 = $('hd123'); if (h3) h3.onchange = () => $('boxMCE').classList.toggle('hide', !h3.checked);
   if ($('stato')) $('stato').onchange = () => { const s = $('stato').value === 'sol'; if ($('qtaU')) $('qtaU').textContent = s ? 'kg' : 'L'; if ($('solBox')) $('solBox').classList.toggle('hide', !s); };
   if ($('t1sel')) { aggiornaT1sel(); if ($('inAcqua')) $('inAcqua').onchange = aggiornaT1sel; }
   const ie = $('imbe');
@@ -792,7 +796,9 @@ $('calc').onclick = () => {
       risultati.forEach(r => { if (r.meteo && r.meteo.vento_ms < 1) r.avvisi = [...(r.avvisi || []), `Vento di ${String(r.meteo.vento_ms).replace('.', ',')} m/s, sotto 1 m/s a 10 m: i modelli di dispersione non sono affidabili in condizioni di calma (ALOHA, Tech. Doc. 5.4.4 § 1.2, si applica solo con vento oltre 1 m/s). Considerare la nube ferma attorno alla sorgente e le distanze come indicative.`]; }); }
     if (cur.classe.startsWith('1.')) {
       const { nem } = leggiNEM(), na = num('nemart');
-      const qd = M.qdDoD({ div: cur.classe, nem_kg: nem, nemArticolo_kg: na && na > 0 ? na : null, ferrovia: !!($('ferro') && $('ferro').checked), grossoCalibro: !!($('calibro') && $('calibro').checked) });
+      const h3 = !!($('hd123') && $('hd123').checked), mc = h3 ? num('mce') : null;
+      if (mc !== null && mc !== undefined && mc <= 0) throw 'MCE non valido';
+      const qd = M.qdDoD({ div: cur.classe, nem_kg: nem, nemArticolo_kg: na && na > 0 ? na : null, ferrovia: !!($('ferro') && $('ferro').checked), grossoCalibro: !!($('calibro') && $('calibro').checked), hd123: h3, mce_kg: mc && mc > 0 ? mc : null });
       if (qd.righe.length) risultati.forEach(r => r.qd = qd);
     }
     if (['PF', 'JF', 'BL', 'FF', 'VCE'].includes(m) && p.fumi)

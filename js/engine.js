@@ -715,13 +715,41 @@ function fumiIncendio({ portata_kgs, Qc_kW, pm, soglie_ppm, meteo = METEO_PREDEF
 // DoD 6055.09-M Vol. 3 (2012, ripreso dal DESR 6055.09): Tabelle V3.E3.T10 (HD 1.2.1), T12 (HD 1.2.2), T14 (HD 1.3);
 // Vol. 1 Tabella V1.E10.T4: distanze di allontanamento in emergenza del personale non indispensabile
 const LB = 2.204623, FT = 0.3048;
-function qdDoD({ div, nem_kg, nemArticolo_kg = null, ferrovia = false, grossoCalibro = false }) {
+// distanza dei frammenti pericolosi HD 1.1 all'aperto (Tabella V3.E3.T2, colonna "Open"; EQN V3.E3.T2-1 e T2-2), W in lb
+function hfdAperto(W) {
+  if (W > 450) return 1250;
+  return W < 100 ? Math.max(291.3 + 79.2 * Math.log(Math.max(W, 1e-9)), 236) : -1133.9 + 389 * Math.log(W);
+}
+// HD 1.3 (Tabella V3.E3.T14), W in lb
+function ibd13(W) {
+  const l = Math.log(Math.max(W, 1e-9));
+  let d;
+  if (W < 1000) d = 75;
+  else if (W < 96000) d = Math.exp(2.47 + 0.2368 * l + 0.00384 * l * l);
+  else if (W < 1000000) d = Math.exp(7.2297 - 0.5984 * l + 0.04046 * l * l);
+  else d = 8 * Math.cbrt(W);
+  return Math.max(d, 75);
+}
+function qdDoD({ div, nem_kg, nemArticolo_kg = null, ferrovia = false, grossoCalibro = false, hd123 = false, mce_kg = null }) {
   const W = nem_kg * LB, lnW = Math.log(Math.max(W, 1e-9)), righe = [], ipotesi = [], avvisi = [];
   const m = ft => Math.round(ft * FT);
   const dv = div.slice(0, 3);
+  const nf = x => String(+x.toFixed(2)).replace('.', ',');
   const DEF = { '1.2': 'Divisione 1.2 (IMDG 2.1.1.4): materie e oggetti che presentano un pericolo di proiezione ma non di esplosione in massa', '1.3': 'Divisione 1.3 (IMDG 2.1.1.4): materie e oggetti che presentano un pericolo di incendio con un leggero pericolo di spostamento d\'aria o di proiezione, o di entrambi, ma senza pericolo di esplosione in massa' };
   if (DEF[dv]) ipotesi.push(DEF[dv]);
-  if (dv === '1.2') {
+  if (dv === '1.2' && hd123) {
+    // HD 1.2.3 (V3.E3.2.13): QD di HD 1.3 per la NEM totale, con minimo pari alla HFD HD 1.1 dell'evento massimo credibile (MCE) all'aperto
+    const mce = mce_kg !== null ? mce_kg : nemArticolo_kg !== null ? nemArticolo_kg : nem_kg;
+    const d13 = ibd13(W), hfd = hfdAperto(mce * LB), ibd = Math.max(d13, hfd);
+    righe.push({ k: 'IBD', nome: 'Distanza dagli edifici abitati e dalle vie di traffico pubblico (IBD = PTRD)', m: m(ibd), descr: `HD 1.2.3: il maggiore fra la distanza HD 1.3 (${m(d13)} m) e i frammenti pericolosi dell'MCE (${m(hfd)} m)` });
+    righe.push({ k: 'HFD', nome: 'Distanza dei frammenti pericolosi dell\'evento massimo credibile (HFD)', m: m(hfd), descr: `HD 1.1 all'aperto per MCE = ${nf(mce)} kg` });
+    righe.push({ k: 'EWD', nome: 'Allontanamento in emergenza del personale non indispensabile', m: 762, descr: 'HD 1.2: 2500 ft' });
+    ipotesi.push('Sottodivisione DoD HD 1.2.3 indicata dall\'utente (articoli che, provati, non danno esplosione di massa e reagiscono uno alla volta; classificazione DoD o NATO del mittente, non deducibile dall\'IMDG)');
+    ipotesi.push(`HD 1.2.3 (DoD 6055.09-M Vol. 3, V3.E3.2.13): distanze di HD 1.3 (Tabella V3.E3.T14) per la NEM totale, con il minimo pari alla distanza dei frammenti pericolosi HD 1.1 per l'evento massimo credibile in area aperta o struttura leggera (V3.E3.2.13.2). MCE = ${nf(mce)} kg${mce_kg !== null ? ' (indicato dall\'utente)' : nemArticolo_kg !== null ? ' (NEM del singolo articolo: si assume che reagisca un articolo alla volta)' : ' (non indicato: si usa la NEM totale, molto cautelativo)'}`);
+    ipotesi.push('HFD HD 1.1 all\'aperto (Tabella V3.E3.T2): 291,3 + 79,2·ln W ft sotto 100 lb (minimo 236 ft); −1133,9 + 389·ln W ft da 100 a 450 lb; 1250 ft oltre 450 lb');
+    ipotesi.push('PTRD posta uguale alla IBD come per HD 1.3 (Tabella V3.E3.T14): il paragrafo V3.E3.2.13 fissa il minimo solo per la IBD (scelta cautelativa di Claude)');
+    if (mce * LB > 1.6) avvisi.push('MCE oltre 1,6 lb (0,73 kg): il DoD (V3.E3.2.13.3.1) consente anche di trattare gli articoli come HD 1.2.1; il calcolo resta HD 1.2.3 come indicato.');
+  } else if (dv === '1.2') {
     const sub = nemArticolo_kg === null ? '1.2.1' : nemArticolo_kg > 0.73 ? '1.2.1' : '1.2.2';
     const Wc = Math.min(W, 500000);
     const l = Math.log(Wc);
@@ -735,14 +763,9 @@ function qdDoD({ div, nem_kg, nemArticolo_kg = null, ferrovia = false, grossoCal
     ipotesi.push(`Sottodivisione DoD HD ${sub}: ${nemArticolo_kg === null ? 'NEM del singolo articolo non indicata, si assume HD 1.2.1 (distanze maggiori, cautelativo)' : `NEM del singolo articolo ${String(nemArticolo_kg).replace('.', ',')} kg ${sub === '1.2.1' ? '> 0,73 kg' : '≤ 0,73 kg'} (criterio DoD sulla NEM; la classificazione DoD considera anche la frammentazione)`}`);
     ipotesi.push(sub === '1.2.1' ? 'IBD = −735,186 + 237,559·ln W − 4,274·(ln W)² ft, minimo 200 ft (EQN V3.E3.T10-1), W = NEM totale in libbre' : 'IBD = 101,649 − 15,934·ln W + 5,173·(ln W)² ft, minimo 100 ft (EQN V3.E3.T12-1), W = NEM totale in libbre');
     if (W > 500000) avvisi.push('NEM oltre 500 000 lb (227 t): le tabelle DoD per HD 1.2 rimandano a criteri specifici; il valore è calcolato a 500 000 lb e va considerato un minimo');
-    avvisi.push('L\'IMDG non distingue HD 1.2.1, 1.2.2 e 1.2.3 (sottodivisioni DoD). Per gli articoli HD 1.2.3 il DoD applica le distanze HD 1.3 con un minimo legato ai frammenti dell\'articolo, non calcolato qui.');
+    avvisi.push('L\'IMDG non distingue HD 1.2.1, 1.2.2 e 1.2.3 (sottodivisioni DoD). Se il mittente indica HD 1.2.3 (munizioni insensibili), spuntare la casella dedicata: si applicano le distanze HD 1.3 con il minimo dei frammenti dell\'evento massimo credibile.');
   } else if (dv === '1.3') {
-    let d;
-    if (W < 1000) d = 75;
-    else if (W < 96000) d = Math.exp(2.47 + 0.2368 * lnW + 0.00384 * lnW * lnW);
-    else if (W < 1000000) d = Math.exp(7.2297 - 0.5984 * lnW + 0.04046 * lnW * lnW);
-    else d = 8 * Math.cbrt(W);
-    d = Math.max(d, 75);
+    const d = ibd13(W);
     const Dfb = 3.97 * Math.cbrt(1.2 * nem_kg);
     righe.push({ k: 'IBD', nome: 'Distanza dagli edifici abitati e dalle vie di traffico pubblico (IBD = PTRD)', m: m(d), descr: 'HD 1.3: protezione dall\'irraggiamento e dai frammenti dell\'incendio di massa' });
     righe.push({ k: 'FB', nome: 'Raggio della palla di fuoco (fireball)', m: Math.round(Dfb / 2), descr: `diametro ${Math.round(Dfb)} m = 3,97·(1,2·NEM)^(1/3)` });
@@ -750,16 +773,35 @@ function qdDoD({ div, nem_kg, nemArticolo_kg = null, ferrovia = false, grossoCal
     ipotesi.push('IBD = PTRD (Tabella V3.E3.T14): 75 ft sotto 1000 lb; exp[2,47 + 0,2368·ln W + 0,00384·(ln W)²] ft fino a 96 000 lb; exp[7,2297 − 0,5984·ln W + 0,04046·(ln W)²] ft fino a 1 000 000 lb; 8·W^(1/3) ft oltre; minimo 75 ft');
     ipotesi.push('Diametro della fireball D = 3,97·(1,2·Q)^(1/3) m, con Q = NEM in kg e il 20% di margine di sicurezza previsto dal DoD');
   } else if (dv === '1.1' || dv === '1.5') {
+    // IBD e PTRD HD 1.1 per le sorgenti all'aperto e i veicoli ("other PES", Tabella V3.E3.T1 nota d): frammenti fino a 30 000 lb
+    const hfd = hfdAperto(W);
+    let ibd, regola;
+    if (W <= 30000) { ibd = hfd; regola = W <= 450 ? 'frammenti pericolosi (Tabella V3.E3.T2, all\'aperto)' : 'frammenti pericolosi: minimo di 1250 ft (V3.E3.1.2.1.1.2.1)'; }
+    else if (W <= 100000) { ibd = Math.max(40 * Math.cbrt(W), 1250); regola = 'onda d\'urto 40·W^(1/3) ft (EQN V3.E3.T1-29), almeno 1250 ft'; }
+    else if (W <= 250000) { ibd = 2.42 * Math.pow(W, 0.577); regola = 'onda d\'urto 2,42·W^0,577 ft (EQN V3.E3.T1-30)'; }
+    else { ibd = 50 * Math.cbrt(W); regola = 'onda d\'urto 50·W^(1/3) ft (EQN V3.E3.T1-31)'; }
+    righe.push({ k: 'IBD', nome: 'Distanza dagli edifici abitati (IBD)', m: m(ibd), descr: `HD ${dv}: ${regola}` });
+    righe.push({ k: 'PTRD', nome: 'Distanza dalle vie di traffico pubblico (PTRD)', m: m(0.6 * ibd), descr: '60% della IBD' });
+    if (W <= 30000) righe.push({ k: 'HFD', nome: 'Distanza dei frammenti pericolosi (HFD)', m: m(hfd), descr: 'densità dei frammenti pericolosi accettabile per le persone esposte (1 frammento ogni 600 ft²)' });
+    ipotesi.push(`Divisione ${dv} (IMDG 2.1.1.4): ${dv === '1.1' ? 'materie e oggetti che presentano un pericolo di esplosione in massa' : 'materie molto poco sensibili che presentano un pericolo di esplosione in massa'}; il DoD applica le distanze di HD 1.1`);
+    ipotesi.push('IBD HD 1.1 per sorgenti all\'aperto, veicoli e altri PES (DoD 6055.09-M Vol. 3, Tabella V3.E3.T1 nota d): fino a 30 000 lb governano i frammenti; oltre, l\'onda d\'urto: 40·W^(1/3) ft fino a 100 000 lb, 2,42·W^0,577 ft fino a 250 000 lb, 50·W^(1/3) ft oltre. PTRD = 60% della IBD (nota e)');
+    ipotesi.push('HFD HD 1.1 all\'aperto (Tabella V3.E3.T2, colonna "Open"): 291,3 + 79,2·ln W ft sotto 100 lb (minimo 236 ft); −1133,9 + 389·ln W ft da 100 a 450 lb; 1250 ft da 451 a 30 000 lb (V3.E3.1.2.1.1.2.1). W = NEM in libbre');
+    avvisi.push('Le distanze HD 1.1 non tengono conto della riduzione a 900 ft per popolazione rada (V3.E3.1.2.1.1.4) né di distanze minori giustificate da analisi strutturali; per i singoli articoli in catasta aperta la Tabella V3.E3.T3 dà valori specifici, non usati.');
     const v = grossoCalibro ? 1219 : nem_kg <= 226.8 ? 762 : ferrovia ? 1524 : 1219;
     righe.push({ k: 'EWD', nome: 'Allontanamento in emergenza del personale non indispensabile (trasporto)', m: v, descr: grossoCalibro ? 'bombe e proiettili di calibro ≥ 127 mm: 4000 ft' : nem_kg <= 226.8 ? 'NEM ≤ 226,8 kg (500 lb): 2500 ft' : ferrovia ? 'NEM > 226,8 kg su carro ferroviario: 5000 ft' : 'NEM > 226,8 kg, trasporto non ferroviario: 4000 ft' });
   } else if (dv === '1.4') {
     righe.push({ k: 'EWD', nome: 'Allontanamento in emergenza del personale non indispensabile', m: 92, descr: 'HD 1.4: 300 ft (91,5 m)' });
   } else if (dv === '1.6') {
+    // HD 1.6 (Tabella V3.E3.T16): IBD = PTRD = 40·W^(1/3) ft sulla NEM del singolo articolo più grande, minimo il valore per 100 lb
+    const Wa = (nemArticolo_kg !== null ? nemArticolo_kg : nem_kg) * LB, d = 40 * Math.cbrt(Math.max(Wa, 100));
+    righe.push({ k: 'IBD', nome: 'Distanza dagli edifici abitati e dalle vie di traffico pubblico (IBD = PTRD)', m: m(d), descr: `HD 1.6: 40·W^(1/3) ft sulla NEM ${nemArticolo_kg !== null ? 'dell\'articolo più grande' : 'totale (articolo non indicato, cautelativo)'}, minimo il valore per 100 lb (57 m)` });
+    ipotesi.push('Divisione 1.6 (IMDG 2.1.1.4): oggetti estremamente poco sensibili che non presentano pericolo di esplosione in massa');
+    ipotesi.push(`HD 1.6 (DoD 6055.09-M Vol. 3, Tabella V3.E3.T16, note a ed e): IBD = PTRD = 40·W^(1/3) ft con W la NEM del singolo articolo più grande; sotto 100 lb si usa la distanza per 100 lb. W = ${nemArticolo_kg !== null ? nf(nemArticolo_kg) + ' kg (articolo indicato)' : nf(nem_kg) + ' kg (NEM totale: articolo non indicato, molto cautelativo)'}`);
     righe.push({ k: 'EWD', nome: 'Allontanamento in emergenza del personale non indispensabile', m: 762, descr: 'HD 1.6: 2500 ft' });
   }
   if (righe.length) {
     ipotesi.push('Distanze di allontanamento in emergenza: DoD 6055.09-M Vol. 1, Tabella V1.E10.T4 ("Emergency Withdrawal Distances for Nonessential Personnel"); non considerano la gittata dei propulsori');
-    if (dv === '1.2' || dv === '1.3') ipotesi.push('IBD e PTRD: DoD 6055.09-M Vol. 3 (2012), ripreso dal DESR 6055.09 (2019–2024). Sono distanze di sicurezza per la pianificazione dei depositi, usate qui come riferimento per l\'evento in transito');
+    if (dv !== '1.4') ipotesi.push('IBD e PTRD: DoD 6055.09-M Vol. 3 (2012), ripreso dal DESR 6055.09 (2019–2024). Sono distanze di sicurezza per la pianificazione dei depositi, usate qui come riferimento per l\'evento in transito');
   }
   return { righe, ipotesi, avvisi, nem_kg };
 }
