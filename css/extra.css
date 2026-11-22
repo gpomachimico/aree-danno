@@ -65,12 +65,3 @@ table.segr td.n{text-align:center;font-weight:bold}
   #report table.segr td.n{text-align:center}
 }
 
-.cgv{border-bottom:1px solid #e3e3e3;padding:6px 0}
-.cgv .row{flex-wrap:wrap;gap:6px;align-items:center}
-.cgv label.ck{font-size:13px;display:inline-flex;gap:3px;align-items:center}
-table.cgm td.n,table.cgm th{text-align:center}
-td.cgl1{background:#fff4c2}td.cgl2{background:#ffd9a8}td.cgl3{background:#ffb3a0}td.cgl4{background:#f08a8a}
-#caricocard details{margin:4px 0}#caricocard summary{cursor:pointer}
-#cgRis h4{margin:12px 0 4px;font-size:14px}
-@media (prefers-color-scheme:dark){td.cgl1,td.cgl2,td.cgl3,td.cgl4{color:#111}}
-@media print{td.cgl1,td.cgl2,td.cgl3,td.cgl4{-webkit-print-color-adjust:exact;print-color-adjust:exact}}

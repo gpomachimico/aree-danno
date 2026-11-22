@@ -19,7 +19,7 @@
   <div class="hrow">
     <div>
       <h1>Aree di danno e di sicurezza</h1>
-      <p>v1.16-beta · stime di supporto tecnico (parere tecnico), non atti amministrativi <span id="netstato"></span></p>
+      <p>v1.17-beta · stime di supporto tecnico (parere tecnico), non atti amministrativi <span id="netstato"></span></p>
     </div>
     <button id="btnSet" class="icon" type="button" aria-label="Impostazioni">⚙</button>
   </div>
@@ -48,16 +48,6 @@
 <h2>Scheda merce – IMDG Code 42-24</h2>
 <div id="schedabox"></div>
 <div class="row"><button id="schedaCalc" type="button" class="sec">Calcola le aree di danno per questa merce</button><button id="schedaPrint" type="button">Stampa / salva PDF della scheda</button></div>
-</section>
-
-<section class="card hide" id="caricocard">
-<h2>Verifica di segregazione del carico – IMDG 7.2</h2>
-<p class="small">Inserire le merci del carico (o della stessa unità di trasporto): l'app indica la segregazione richiesta per ogni coppia.</p>
-<div class="row"><input id="cgU" type="text" inputmode="numeric" placeholder="Numero ONU" style="width:8em"><button id="cgAdd" type="button">Aggiungi</button><button id="cgDaScheda" type="button" class="sec">Aggiungi la merce della scheda</button></div>
-<p class="small" id="cgMsg"></p>
-<div id="cgLista"></div>
-<div id="cgRis"></div>
-<div class="row"><button id="cgPrint" type="button">Stampa / salva PDF della verifica</button><button id="cgVuota" type="button" class="sec">Svuota il carico</button></div>
 </section>
 
 <section class="card hide" id="inbox">
@@ -155,6 +145,5 @@
 <script src="js/app.base.js"></script>
 <script src="js/app.extra.js"></script>
 <script src="js/app.scheda.js"></script>
-<script src="js/app.carico.js"></script>
 </body>
 </html>
