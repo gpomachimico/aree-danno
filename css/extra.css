@@ -74,3 +74,9 @@ table.ems td:first-child{width:30%;font-weight:600}
 p.emsQ{background:#fdecea}
 @media (prefers-color-scheme:dark){.emsSc,p.emsQ{background:#4a2420}}
 @media print{.emsSc,p.emsQ{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+
+.imbw{overflow-x:auto;margin:4px 0 8px;background:#fff;color:#000;border:1px solid var(--line,#ccc)}
+.imbsvg{display:block;font-family:Arial,Helvetica,sans-serif;fill:#000;height:auto}
+.imbsvg text.hl{fill:#c0392b;font-weight:bold}
+details.imbd{margin:3px 0}details.imbd>summary{cursor:pointer}
+@media print{.imbw{overflow:visible;border:0}.imbsvg{width:100%;max-width:100%}.imbsvg text.hl{-webkit-print-color-adjust:exact;print-color-adjust:exact}}

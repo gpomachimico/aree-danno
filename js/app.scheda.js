@@ -85,6 +85,82 @@ function emsHTML(u, righe, esc, perStampa) {
   }
   return h;
 }
+// ---------- Istruzioni di imballaggio e cisterne (23/11/2026): IMDG 42-24, 4.1.4 e 4.2.5, riproduzione vettoriale
+// delle pagine del PDF ufficiale (js/imballaggi.js, circa 1 MB, generato da tools/build_imballaggi.py e caricato solo
+// quando si apre un'istruzione). In stampa vanno le istruzioni aperte a video.
+let imbPronto = null; const imbAperti = new Set();
+function caricaImb() {
+  if (DATA.imb) return Promise.resolve();
+  if (!imbPronto) imbPronto = new Promise((ok, ko) => { const s = document.createElement('script'); s.src = 'js/imballaggi.js'; s.onload = ok; s.onerror = () => { imbPronto = null; ko(new Error('istruzioni non disponibili')); }; document.head.appendChild(s); });
+  return imbPronto;
+}
+const xmlEsc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+function svgRegione(r, evid = []) {
+  const [x, y, w, h] = r.vb, ev = new Set(evid);
+  const d = r.e.map(e => `M${e[0]} ${e[1]}L${e[2]} ${e[3]}`).join('');
+  const T = r.t.map(([tx, ty, s, l, f, s0]) => {
+    const hl = ev.has(s0) || evid.some(k => /^\d{4}$/.test(k) && s0.startsWith(k + ' '));
+    return `<text x="${tx}" y="${ty}" font-size="${s}" textLength="${l}" lengthAdjust="spacingAndGlyphs"${f.includes('b') ? ' font-weight="bold"' : ''}${f.includes('i') ? ' font-style="italic"' : ''}${hl ? ' class="hl"' : ''}>${xmlEsc(s0)}</text>`;
+  }).join('');
+  return `<div class="imbw"><svg class="imbsvg" viewBox="${x} ${y} ${w} ${h}" width="${Math.round(w * 1.5)}" xmlns="http://www.w3.org/2000/svg"><path d="${d}" stroke="currentColor" stroke-width="0.5" fill="none"/>${T}</svg></div>`;
+}
+function imbCodici(r) { // codici delle colonne 8, 10 e 13, con le varianti (a)(b)(c) e le disposizioni delle colonne 9, 11 e 14
+  const istr = [], s8 = ((r['8'] || '') + ' ' + (r['10'] || ''));
+  for (const m of s8.matchAll(/\b(P\d{3}|LP\d{2,3}|IBC\d{2,3})((?:\s*\([a-c]\)\s*(?:,|or)?)*)/g)) {
+    const v = [...(m[2] || '').matchAll(/\(([a-c])\)/g)].map(x => `${m[1]}(${x[1]})`);
+    istr.push(...(v.length ? v : [m[1]]));
+  }
+  const cist = ((r['13'] || '').match(/\bT\d+\b/g) || []), bk = ((r['13'] || '').match(/\bBK\d\b/g) || []);
+  const disp = [...new Set(((r['9'] || '') + ' ' + (r['11'] || '')).match(/\b(PP\d+|B\d+|L\d+)\b/g) || [])];
+  const tp = ((r['14'] || '').match(/\bTP\d+\b/g) || []);
+  return { istr, cist, bk, disp, tp };
+}
+const BK_DESCR = { BK1: 'sheeted bulk container (4.3.3)', BK2: 'closed bulk container', BK3: 'flexible bulk container (4.3.4)' };
+function imbBlocco(chiave, u, disp) { // contenuto di un'istruzione: SVG delle regioni
+  const I = DATA.imb;
+  if (/^TP\d+$/.test(chiave)) return (I.tp[chiave] || []).map(r => svgRegione(r)).join('');
+  if (/^T\d+$/.test(chiave)) {
+    const n = +chiave.slice(1);
+    if (n <= 22) return `<p class="small">4.2.5.2.5 – istruzioni ammesse in alternativa:</p>${I.cist['T-ALT'].map(r => svgRegione(r, [chiave])).join('')}<p class="small">4.2.5.2.6 – istruzione ${chiave}:</p>${I.cist['T1-T22'].map(r => svgRegione(r, [chiave])).join('')}`;
+    return (I.cist[chiave] || []).map(r => svgRegione(r, [u])).join('');
+  }
+  const R = I.istr[chiave];
+  return R ? R.map(r => svgRegione(r, disp)).join('') : '<p class="small">Istruzione non trovata nel testo del Codice.</p>';
+}
+function imbHTML(u, righe, esc, perStampa) {
+  const C = righe.map(imbCodici), cls = perStampa ? 'nota' : 'small';
+  const istr = [...new Set(C.flatMap(c => c.istr))], cist = [...new Set(C.flatMap(c => c.cist))], bk = [...new Set(C.flatMap(c => c.bk))];
+  const disp = [...new Set(C.flatMap(c => c.disp))], tp = [...new Set(C.flatMap(c => c.tp))];
+  if (!istr.length && !cist.length && !bk.length) return '';
+  const voci = [...istr.map(k => [k, /^IBC/.test(k) ? 'istruzione di imballaggio per IBC (4.1.4.2)' : /^LP/.test(k) ? 'istruzione per grandi imballaggi (4.1.4.3)' : 'istruzione di imballaggio (4.1.4.1)']),
+    ...cist.map(k => [k, 'istruzione per cisterne mobili (4.2.5.2)']), ...tp.map(k => [k, 'disposizione speciale per cisterne mobili (4.2.5.3)'])];
+  let h = `<h4>Imballaggi, IBC e cisterne mobili (4.1.4, 4.2.5)</h4><p class="${cls}">Testo e tabelle riprodotti dalle pagine del PDF ufficiale IMDG 42-24 nella posizione originale${disp.length ? `; in rosso le disposizioni della voce (${esc(disp.join(', '))})` : ''}${cist.length ? '; per le cisterne è evidenziata la riga del codice o del numero ONU' : ''}. ${perStampa ? '' : 'Aprire una voce per vederne il testo; in stampa vanno le voci aperte. Scorrere in orizzontale le tabelle larghe.'}</p>`;
+  if (bk.length) h += `<p class="${cls}">Contenitori per rinfuse (colonna 13): ${bk.map(k => `<b>${esc(k)}</b> – ${esc(BK_DESCR[k])}`).join('; ')}; vedere il capitolo 4.3.</p>`;
+  if (perStampa) {
+    const ap = voci.filter(([k]) => imbAperti.has(u + '|' + k));
+    for (const [k, d] of ap) h += `<p class="nota"><b>${esc(k)}</b> – ${esc(d)}</p>${DATA.imb ? imbBlocco(k, u, disp) : ''}`;
+    const no = voci.filter(([k]) => !imbAperti.has(u + '|' + k)).map(([k]) => k);
+    if (no.length) h += `<p class="nota">Testi non riportati in questa stampa: ${esc(no.join(', '))} (IMDG Code 42-24, 4.1.4 e 4.2.5).</p>`;
+    return h;
+  }
+  for (const [k, d] of voci) {
+    const ap = imbAperti.has(u + '|' + k);
+    h += `<details class="imbd" data-k="${esc(k)}" data-u="${esc(u)}"${ap ? ' open' : ''}><summary><b>${esc(k)}</b> – ${esc(d)}</summary><div class="imbc">${ap && DATA.imb ? imbBlocco(k, u, disp) : ''}</div></details>`;
+  }
+  return h;
+}
+document.addEventListener('toggle', e => {
+  const el = e.target; if (!el.classList || !el.classList.contains('imbd')) return;
+  const k = el.dataset.k, u = el.dataset.u, key = u + '|' + k, box = el.querySelector('.imbc');
+  if (!el.open) { imbAperti.delete(key); return; }
+  imbAperti.add(key);
+  if (box.innerHTML) return;
+  box.innerHTML = '<p class="small">Caricamento del testo…</p>';
+  caricaImb().then(() => {
+    const disp = [...new Set((DATA.dgl[u] || []).flatMap(r => imbCodici(r).disp))];
+    box.innerHTML = imbBlocco(k, u, disp);
+  }).catch(() => { box.innerHTML = '<div class="warn">Testi non disponibili senza rete: riprovare con la connessione.</div>'; });
+}, true);
 function schedaHTML(u, esc = x => x, perStampa = false) {
   const righe = DATA.dgl[u] || [], d = DATA.db[u], g = d ? DATA.guide[d.guida] : null;
   if (!righe.length) return '<div class="warn">Numero ONU non presente nella Dangerous Goods List dell\'IMDG Code 42-24.</div>';
@@ -125,6 +201,7 @@ function schedaHTML(u, esc = x => x, perStampa = false) {
         <p class="${cls}">${[1, 2, 3, 4, 'X', '*'].map(k => `${k} = ${esc(SEGR_TERMINI[k])}`).join(' · ')}.</p>`;
     }
   });
+  h += imbHTML(u, righe, esc, perStampa);
   h += emsHTML(u, righe, esc, perStampa);
   if (d && g) {
     h += `<h4>ERG 2024 – Guida ${esc(d.guida)}</h4><p class="${cls}">${esc(g.titolo_it || g.titolo)}</p><table>${ergRighe(g, d.guida).map(([a, b]) => `<tr><td>${esc(a)}</td><td>${esc(b)}</td></tr>`).join('')}</table>`;
@@ -158,11 +235,12 @@ $('schedaCalc').onclick = () => { modo = 'aree'; applicaModo(); window.scrollTo(
   mostraVoce = function (iv) { mv(iv); if (modo === 'scheda') { ['inbox', 'meteobox', 'calc'].forEach(id => $(id).classList.add('hide')); mostraScheda(); } };
   $('onu').addEventListener('input', () => { if (modo === 'scheda' && !cur) mostraScheda(); });
 }
-$('schedaPrint').onclick = () => {
+$('schedaPrint').onclick = async () => {
   if (!cur || !cur.u || !DATA.dgl) return;
+  if ([...imbAperti].some(k => k.startsWith(cur.u + '|'))) { try { await caricaImb(); } catch (e) { } }
   const s = leggiImpostazioni(), quando = new Date().toLocaleString('it-IT', { dateStyle: 'long', timeStyle: 'short' });
   let h = s.carta ? cartaHTML() : '';
-  h += `<div class="intest"><h1>Scheda merce pericolosa – UN ${esc(cur.u)}</h1><table class="dati"><tr><td>Data di redazione</td><td>${esc(quando)}</td></tr><tr><td>Riferimenti</td><td>IMDG Code, Emendamento 42-24 (Ris. MSC.556(108)); ERG 2024</td></tr></table></div>`;
+  h += `<div class="intest"><h1>Scheda merce pericolosa – UN ${esc(cur.u)}</h1><table class="dati"><tr><td>Data di redazione</td><td>${esc(quando)}</td></tr><tr><td>Riferimenti</td><td>IMDG Code, Emendamento 42-24 (Ris. MSC.556(108)); guida EmS MSC.1/Circ.1588/Rev.4; ERG 2024</td></tr></table></div>`;
   h += schedaHTML(cur.u, esc, true);
   h += `<p class="nota">Scheda di supporto tecnico redatta con l'app v${VERSIONE}: non sostituisce il documento di trasporto né la consultazione del testo ufficiale del Codice IMDG; i testi delle disposizioni sono riportati nella lingua originale.</p>`;
   h += `<div class="firma"><div>${esc(s.nome)}</div><div>${esc(s.qualifica)}</div><div class="linea">Firma ____________________________</div></div>`;
