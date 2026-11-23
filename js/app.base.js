@@ -626,11 +626,30 @@ const num = id => { const e = $(id); if (!e || e.value === '') return null; cons
 function interpLog(tab, c) { const k = Object.keys(tab).map(Number).sort((a, b) => a - b); c = Math.min(Math.max(c, k[0]), k[k.length - 1]); for (let i = 0; i < k.length - 1; i++) if (c <= k[i + 1]) { const a = k[i], b = k[i + 1]; return Math.exp(Math.log(tab[a]) + (Math.log(tab[b]) - Math.log(tab[a])) * (c - a) / (b - a)); } return tab[k[k.length - 1]]; }
 function interpLin(tab, c) { const k = Object.keys(tab).map(Number).sort((a, b) => a - b); c = Math.min(Math.max(c, k[0]), k[k.length - 1]); for (let i = 0; i < k.length - 1; i++) if (c <= k[i + 1]) { const a = k[i], b = k[i + 1]; return tab[a] + (tab[b] - tab[a]) * (c - a) / (b - a); } return tab[k[k.length - 1]]; }
 
+// controllo dei campi numerici prima del calcolo (verifica generale del 23/11/2026): valori non numerici, negativi o nulli, fuori dai limiti min/max del campo
+function verificaCampi() {
+  const campi = [...$('inbox').querySelectorAll('input[type=number]')];
+  if (meteoUser) campi.push($('vento'), $('temp'));
+  if ($('edOn') && $('edOn').checked) campi.push($('edAch'));
+  for (const e of campi) {
+    if (!e || e.offsetParent === null) continue;
+    const lab = ((e.id && document.querySelector(`label[for="${e.id}"]`)) || e.parentElement.querySelector('label') || {}).textContent || e.id;
+    if (e.validity && e.validity.badInput) throw `${lab}: valore non numerico`;
+    if (e.value === '') continue;
+    const v = num(e.id);
+    if (v === null) throw `${lab}: valore non numerico`;
+    if (e.id !== 'temp' && (v < 0 || (v === 0 && e.id !== 'zolfo'))) throw `${lab}: il valore deve essere maggiore di zero`;
+    const mn = e.getAttribute('min'), mx = e.getAttribute('max');
+    if ((mn !== null && v < +mn) || (mx !== null && v > +mx)) throw `${lab}: valore fuori campo (${String(mn ?? '–').replace('.', ',')}–${String(mx ?? '–').replace('.', ',')})`;
+  }
+}
 $('calc').onclick = () => {
   let p = DATA.props[cur.u] || {};
   const m = cur.modello, sost = `UN ${cur.u} ${cur.psn}`;
   risultati = []; tabSel = 0;
+  document.querySelectorAll('#idbox .errcalc').forEach(x => x.remove());
   try {
+    verificaCampi();
     M.impostaTerreno($('terr') ? $('terr').value : 'aperto');
     M.impostaEdificio(edificioScelto());
     if (p.criogenico && ['GL', 'FF', 'VCE', 'PF'].includes(m)) {
@@ -878,7 +897,8 @@ function casoERGgenerico(imbe, q) {
   return { chiave: 'iso', dist: isoNum, etichetta: 'Isolamento iniziale', motivo: sp.motivo + (grande ? '; per questa guida l\'ERG indica di aumentare la distanza sottovento se necessario' : '') + (fuoco && !grande ? ' (incendio di collo singolo: valutare caso per caso)' : '') };
 }
 
-function alertBox(t) { $('idbox').insertAdjacentHTML('beforeend', `<div class="warn">${t}</div>`); }
+// messaggio di errore del calcolo: uno solo alla volta, tolto al calcolo successivo (verifica generale del 23/11/2026)
+function alertBox(t) { document.querySelectorAll('#idbox .errcalc').forEach(x => x.remove()); const d = document.createElement('div'); d.className = 'warn errcalc'; d.textContent = t; $('idbox').appendChild(d); }
 
 // stato fisico: scelto dall'utente; valore iniziale dal nome IMDG
 const SOLIDO_RE = /SOLID|ASBESTOS|POWDER|GRANUL|FLAKES|PELLET|CHIPS|DUST/;

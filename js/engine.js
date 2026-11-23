@@ -101,7 +101,9 @@ function bleve({ massa_kg, dHc_kJkg = 46000, P_MPa = 1.7, sostanza = '' }) {
       `Frazione irraggiata f = 0,27·P^0,32 con P = ${P_MPa} MPa al cedimento (Roberts)`,
       'Fireball statica a diametro massimo per tutta la durata; trasmissività atmosferica = 1 (cautelativo)',
       'Soglie D.M. 9/5/2001 per irraggiamento variabile (dose termica kJ/m²); elevata letalità = raggio della fireball',
-      'Onda d\'urto e frammenti: riquadro dedicato (se la sostanza ha la tabella termodinamica); vedere anche la tabella BLEVE ERG'
+      'Onda d\'urto e frammenti: riquadro dedicato (se la sostanza ha la tabella termodinamica); vedere anche la tabella BLEVE ERG',
+      // verifica del 23/11/2026: con calore di combustione basso la soglia può cadere entro il raggio della fireball
+      ...['inizio_letalita', 'lesioni_irreversibili', 'lesioni_reversibili'].filter(k => d[k] !== null && d[k] !== undefined && d[k] < d.elevata_letalita).map(k => `La soglia di ${s[k]} kJ/m² (${k.replace(/_/g, ' ')}) è raggiunta a ${d[k]} m, entro il raggio della fireball (${d.elevata_letalita} m): chi si trova entro il raggio è investito dalla fireball; la zona corrispondente è portata almeno al raggio`)
     ]
   };
 }

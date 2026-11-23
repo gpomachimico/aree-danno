@@ -291,7 +291,7 @@ $('schedaCalc').onclick = () => { modo = 'aree'; applicaModo(); window.scrollTo(
 $('schedaPrint').onclick = async () => {
   if (!cur || !cur.u || !DATA.dgl) return;
   if ((DATA.dgl[cur.u] || []).length > 1 && schedaVoce[cur.u] === undefined) {
-    $('schedabox').insertAdjacentHTML('afterbegin', '<div class="warn">Scegliere la voce nel menu «Voci della DGL per questo numero» prima della stampa.</div>'); ($('varSel') || $('schedacard')).scrollIntoView({ behavior: 'smooth', block: 'center' }); return;
+    const w0 = $('avvVoce'); if (w0) w0.remove(); $('schedabox').insertAdjacentHTML('afterbegin', '<div class="warn" id="avvVoce">Scegliere la voce nel menu «Voci della DGL per questo numero» prima della stampa.</div>'); ($('varSel') || $('schedacard')).scrollIntoView({ behavior: 'smooth', block: 'center' }); return;
   }
   stampaTesti.imb = $('stImb').checked; stampaTesti.ems = $('stEms').checked;
   if (stampaTesti.imb) { try { await caricaImb(); } catch (e) { stampaTesti.imb = false; } }
