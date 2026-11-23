@@ -46,8 +46,11 @@ function fattoreVistaCilindro(R, H, L) {
 }
 
 function poolFire({ volume_m3, densita_rel, mburn, dHc_kJkg, area_m2 = null, spessore_m = 0.01, Ef = 100, sostanza = '', fonteDati = null }) {
-  const confinata = area_m2 !== null;
-  const A = confinata ? area_m2 : volume_m3 / spessore_m;
+  // bacino più grande della pozza libera: il liquido non lo riempie e si usa l'area della pozza libera (la minore delle due,
+  // come EPA OCA 1999 § 3.2.3; verifica generale del 23/11/2026)
+  const Alib = volume_m3 / spessore_m, bacinoGrande = area_m2 !== null && area_m2 > Alib;
+  const confinata = area_m2 !== null && !bacinoGrande;
+  const A = confinata ? area_m2 : Alib;
   const D = Math.sqrt(4 * A / Math.PI), R = D / 2;
   const qf = mburn * dHc_kJkg;                                  // HRR per unità di area, kW/m²
   const H = D >= 20 ? 6.4e-3 * qf : 0.35 * Math.exp(-0.05 * D) * D * qf / (4 * Ef);
@@ -64,7 +67,7 @@ function poolFire({ volume_m3, densita_rel, mburn, dHc_kJkg, area_m2 = null, spe
     zone_m: { I: d.elevata_letalita, II: d.lesioni_irreversibili, III: d.lesioni_reversibili },
     dettagli: { area_pozza_m2: +A.toFixed(1), diametro_m: +D.toFixed(1), HRR_unitaria_kWm2: r1(qf), altezza_fiamma_luminosa_m: +H.toFixed(1), HRR_MW: +(qf * A / 1000).toFixed(1), durata_incendio_min: +(durata_s / 60).toFixed(1), flusso_al_bordo_kWm2: +q(R * 1.05).toFixed(1) },
     ipotesi: [
-      confinata ? `Pozza confinata, area ${A} m²` : `Spandimento non confinato su superficie piana, spessore ${spessore_m * 100} cm (EPA OCA 1999)`,
+      confinata ? `Pozza confinata, area ${A} m²` : `Spandimento non confinato su superficie piana, spessore ${String(spessore_m * 100).replace('.', ',')} cm (EPA OCA 1999)${bacinoGrande ? `; il bacino indicato (${area_m2} m²) è più grande della pozza libera (${+Alib.toFixed(1)} m²): il liquido non lo riempie e si usa l'area della pozza libera (EPA OCA 1999, § 3.2.3)` : ''}`,
       'Modello a fiamma solida cilindrica verticale, NISTIR 6546 (McGrattan, Baum, Hamins 2000)',
       `Potere emissivo Ef = ${Ef} kW/m², emissività e trasmissività atmosferica = 1 (cautelativo)`,
       `Velocità di combustione ${mburn} kg/m²s, calore di combustione ${dHc_kJkg} kJ/kg (${fonteDati || 'NISTIR 6546, Tab. 1'})`,
@@ -200,7 +203,7 @@ function gaussiano({ volume_m3, densita_soluzione, frazione_tossico = 1, pm, Pv_
       area_bacino: area_m2, spessore_m, k: evaporazioneEPA({ area_m2: 1, u_ms, pm, Pv_kPa, T_K }) });
     A = pz.A_max; Q = pz.E_max; durata_min = pz.t_rilascio_s / 60;
   } else {
-    A = area_m2 ?? volume_m3 / spessore_m;
+    A = area_m2 !== null && area_m2 !== undefined ? Math.min(area_m2, volume_m3 / spessore_m) : volume_m3 / spessore_m; // bacino più grande della pozza libera: area della pozza libera (EPA OCA 1999, § 3.2.3)
     Q = evaporazioneEPA({ area_m2: A, u_ms, pm, Pv_kPa, T_K });     // kg/s
     durata_min = massaTossico / Q / 60;
   }
@@ -224,7 +227,7 @@ function gaussiano({ volume_m3, densita_soluzione, frazione_tossico = 1, pm, Pv_
     dettagli: { area_pozza_m2: +A.toFixed(1), ...(pz ? { portata_liquido_kg_s: +pz.mL.toFixed(3), tempo_area_max_min: +(pz.t_Amax_s / 60).toFixed(0) } : {}), portata_evaporazione_kg_s: +Q.toFixed(4), portata_kg_min: +(Q * 60).toFixed(2), durata_rilascio_min: +durata_min.toFixed(0), sorgente_virtuale_m: +xv.toFixed(1), conc_100m_ppm: r1(C_mgm3(100) / ppm2mg(1)) },
     pozza: pz,
     ipotesi: [
-      ...(pz ? pz.ipotesi : [area_m2 ? `Pozza confinata ${A} m²` : `Spandimento non confinato, spessore ${String(spessore_m * 100).replace('.', ',')} cm (${spessore_m < 0.008 ? 'ALOHA 5.4.4, § 3.4.4.2: la pozza smette di allargarsi a 5 mm, Briscoe e Shaw 1980' : 'EPA OCA 1999'})`]),
+      ...(pz ? pz.ipotesi : [area_m2 && area_m2 > A ? `Il bacino indicato (${area_m2} m²) è più grande della pozza libera (${+A.toFixed(1)} m², spessore ${String(spessore_m * 100).replace('.', ',')} cm): il liquido non lo riempie e si usa l'area della pozza libera (EPA OCA 1999, § 3.2.3)` : area_m2 ? `Pozza confinata ${A} m²` : `Spandimento non confinato, spessore ${String(spessore_m * 100).replace('.', ',')} cm (${spessore_m < 0.008 ? 'ALOHA 5.4.4, § 3.4.4.2: la pozza smette di allargarsi a 5 mm, Briscoe e Shaw 1980' : 'EPA OCA 1999'})`]),
       `Evaporazione EPA OCA 1999 eq. 3-3, tensione di vapore ${Pv_kPa} kPa a ${(T_K - 273.15).toFixed(0)} °C`,
       `Meteo: classe di stabilità ${stabilita}, vento ${u_ms} m/s; coefficienti di dispersione di Briggs, ${testoTerreno()}`,
       ipotesiAlChiuso(alChiuso),

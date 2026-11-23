@@ -315,7 +315,7 @@ function campiGL(p) {
       <option value="tot">Rilascio totale in 10 minuti (rottura del recipiente)</option>
       <option value="liq">Perdita da foro in fase liquida (foro sotto il pelo del liquido)</option>
       <option value="gas">Perdita da foro in fase gassosa (valvola o foro in alto)</option></select>
-    <div class="row">${f('massa', 'Contenuto del recipiente (kg)', def[2])}<div id="glfw">${f('dforo', 'Diametro del foro (mm)', def[3])}</div></div>
+    <div class="row">${f('massa', 'Contenuto del recipiente (kg)', def[2])}<div id="glfw">${f('dforo', 'Diametro del foro (mm)', def[3], 'min="1" max="300"')}</div></div>
     <p class="small">Sostanza di calcolo: ${p.nome}. Soglie: LC50 ${p.LC50} ppm (ratto, ${p.LC50_t}) · IDLH ${p.IDLH} ppm · LOC ${p.LOC} ppm. La temperatura del contenuto è quella dell'aria indicata nel meteo.</p>`;
 }
 function bindGL() {
@@ -441,7 +441,7 @@ function campiGF(p, m) {
     VCE: 'Soglie: sovrappressione 0,3 (0,6 in spazi aperti) · 0,14 · 0,07 · 0,03 bar (D.M. 9/5/2001).' }[m];
   return `<label>Recipiente</label><select id="glc">${op.map(([v, t]) => `<option value="${v}" ${v === def[0] ? 'selected' : ''}>${t}</option>`).join('')}</select>
     <label>Scenario di rilascio</label><select id="gls">${sc.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}</select>
-    ${q}<div class="row"><div id="glfw">${f('dforo', 'Diametro del foro (mm)', def[3])}</div>${m === 'VCE' ? `<div><label for="eta">Rendimento dell'esplosione</label><select id="eta"><option value="0.1">10% – scenario peggiore EPA, area congestionata</option><option value="0.03">3% – campo aperto, poca congestione</option></select></div>` : ''}</div>
+    ${q}<div class="row"><div id="glfw">${f('dforo', 'Diametro del foro (mm)', def[3], 'min="1" max="300"')}</div>${m === 'VCE' ? `<div><label for="eta">Rendimento dell'esplosione</label><select id="eta"><option value="0.1">10% – scenario peggiore EPA, area congestionata</option><option value="0.03">3% – campo aperto, poca congestione</option></select></div>` : ''}</div>
     ${(m === 'FF' || m === 'VCE') && p.pm < 28.964 ? `<div id="ggbox"><label for="ggetto">Nube infiammabile del gas leggero (perdita da foro)</label><select id="ggetto"><option value="getto" selected>Getto libero – diluizione del getto (Chen e Rodi, legge di similitudine di Molkov), predefinito</option><option value="gauss">Dispersione al suolo – gaussiana, senza galleggiamento (molto cautelativa)</option></select></div>` : ''}
     ${m === 'VCE' ? vceMetodoHTML(p) : ''}
     <p class="small">Sostanza di calcolo: ${p.nome}. ${nota} La temperatura del contenuto è quella dell'aria indicata nel meteo.</p>`;
@@ -641,8 +641,34 @@ function verificaCampi() {
     if (e.id !== 'temp' && (v < 0 || (v === 0 && e.id !== 'zolfo'))) throw `${lab}: il valore deve essere maggiore di zero`;
     const mn = e.getAttribute('min'), mx = e.getAttribute('max');
     if ((mn !== null && v < +mn) || (mx !== null && v > +mx)) throw `${lab}: valore fuori campo (${String(mn ?? '–').replace('.', ',')}–${String(mx ?? '–').replace('.', ',')})`;
+    const L = LIMITI_QTA[e.id];
+    if (L && v > L.max) throw `${lab}: ${fmtN(v)} ${L.u} supera il limite di plausibilità di ${fmtN(L.max)} ${L.u} (${L.perche}). ${L.fuori ?? LIMITI_FUORI}`;
   }
+  // coerenza fra i campi
+  const p = (cur && DATA.props[cur.u]) || {}, vis = id => $(id) && $(id).offsetParent !== null ? num(id) : null;
+  const vol = vis('vol'), rho = typeof p.dens === 'number' ? p.dens : null;
+  if (vol && rho && vol * rho > LIMITI_QTA.massa.max) throw `Volume: ${fmtN(vol)} L × ${fmtN(rho)} kg/L = ${fmtN(Math.round(vol * rho))} kg supera il limite di plausibilità di ${fmtN(LIMITI_QTA.massa.max)} kg (${LIMITI_QTA.massa.perche}). ${LIMITI_FUORI}`;
+  const nem = vis('nem');
+  for (const [id, nome] of [['nemart', 'NEM del singolo articolo'], ['mce', 'MCE']]) { const x = vis(id); if (x && nem && x > nem) throw `${nome} (${fmtN(x)} kg) maggiore della NEM totale (${fmtN(nem)} kg)`; }
+  const nc = vis('ncolli'), ncc = vis('nemcollo');
+  if (nc && !Number.isInteger(nc)) throw 'Numero di colli: inserire un numero intero';
+  if (nc && ncc && nc * ncc > LIMITI_QTA.nem.max) throw `NEM totale dei colli (${fmtN(nc)} × ${fmtN(ncc)} kg) oltre il limite di plausibilità di ${fmtN(LIMITI_QTA.nem.max)} kg (${LIMITI_QTA.nem.perche}). ${LIMITI_FUORI}`;
+  const nc2 = vis('ncolli2'); if (nc2 && !Number.isInteger(nc2)) throw 'Colli coinvolti: inserire un numero intero';
 }
+// Limiti di plausibilità delle quantità (richiesta di Luca del 23/11/2026; valori scelti da Claude): la singola unità di
+// trasporto più grande considerata dall'ERG 2024 (pagina 340, Tabella 3: carro cisterna ferroviario 80 000 kg; pagina 358,
+// tabella BLEVE: serbatoio da 140 000 L). Per gli esplosivi l'estremo delle tabelle DoD 6055.09-M Vol. 3 (V3.E3.T10 e T12,
+// 500 000 lb). La quantità della sola scelta ERG (piccolo/grande spandimento) non ha limite: non cambia le distanze.
+const LIMITI_ERG_M = 'unità di trasporto singola più grande dell\'ERG 2024: carro cisterna ferroviario, Tabella 3';
+const LIMITI_QTA = {
+  massa: { max: 80000, u: 'kg', perche: LIMITI_ERG_M }, massaW: { max: 80000, u: 'kg', perche: LIMITI_ERG_M },
+  vol: { max: 140000, u: 'L', perche: 'serbatoio più grande della tabella BLEVE dell\'ERG 2024' }, capL: { max: 140000, u: 'L', perche: 'serbatoio più grande della tabella BLEVE dell\'ERG 2024' },
+  nem: { max: 226796, u: 'kg', perche: '500 000 lb, estremo delle tabelle DoD 6055.09-M V3.E3.T10 e T12' }, nemcollo: { max: 226796, u: 'kg', perche: '500 000 lb, estremo delle tabelle DoD' },
+  pv: { max: 101.3, u: 'kPa', perche: 'pressione atmosferica: oltre, il liquido bolle a temperatura ambiente', fuori: 'Per un liquido che bolle a temperatura ambiente (gas liquefatto) il modello della pozza che evapora non vale.' },
+  nemart: { max: 226796, u: 'kg', perche: '500 000 lb, estremo delle tabelle DoD' }, mce: { max: 226796, u: 'kg', perche: '500 000 lb, estremo delle tabelle DoD' }
+};
+const fmtN = v => Number(v).toLocaleString('it-IT', { maximumFractionDigits: 2 });
+const LIMITI_FUORI = 'Quantità maggiori (più unità insieme, stiva, nave cisterna) sono fuori dal campo dei modelli dell\'app, che descrivono il rilascio da una singola unità di trasporto.';
 $('calc').onclick = () => {
   let p = DATA.props[cur.u] || {};
   const m = cur.modello, sost = `UN ${cur.u} ${cur.psn}`;
