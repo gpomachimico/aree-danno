@@ -65,11 +65,14 @@
     '1680': ['KCN', 'cianuro di potassio', [['HCN', 1]], 'cian'], '1689': ['NaCN', 'cianuro di sodio', [['HCN', 1]], 'cian'],
     '2977': ['UF6', 'esafluoruro di uranio (UF6 + 2 H2O → UO2F2 + 4 HF)', [['HF', 4]], 'rad'],
     '2978': ['UF6', 'esafluoruro di uranio (UF6 + 2 H2O → UO2F2 + 4 HF)', [['HF', 4]], 'rad'],
-    '3507': ['UF6', 'esafluoruro di uranio (UF6 + 2 H2O → UO2F2 + 4 HF)', [['HF', 4]], 'rad']
+    '3507': ['UF6', 'esafluoruro di uranio (UF6 + 2 H2O → UO2F2 + 4 HF)', [['HF', 4]], 'rad'],
+    // aggiunta del 23/11/2026 (richiesta di Luca): forma solida dell'acido nitrosilsolforico, stessa reazione di UN 2308
+    '3456': ['HNO5S', 'acido nitrosilsolforico solido (NOHSO4 + H2O → H2SO4 + HNO2; l\'acido nitroso si decompone in NO, NO2 e HNO3 e l\'NO si ossida a NO2 in aria: tutto l\'azoto contato come NO2, 1 mol per mole, limite superiore)', [['NO2', 1]], 'nitrosS']
   };
   const NOTE = {
     cian: 'Cianuri: in acqua neutra l\'idrolisi è lenta e solo una parte del cianuro si libera come HCN; con acidi il rilascio è rapido e completo. Il 100% proposto vale per il contatto con acidi ed è molto cautelativo per lo spandimento in acqua.',
     nitros: 'Acido nitrosilsolforico: il prodotto commerciale è di solito una soluzione in acido solforico; indicare nel campo "titolo" la percentuale di NOHSO4 della scheda di sicurezza. La resa di 1 mol di NO2 per mole è un limite superiore: una parte dell\'azoto resta in soluzione come acido nitrico o esce come NO, meno tossico (IDLH 100 ppm).',
+    nitrosS: 'Acido nitrosilsolforico solido (UN 3456): cristalli di NOHSO4, titolo proposto 100%; se la scheda di sicurezza indica un titolo minore, inserirlo nel campo "titolo". La resa di 1 mol di NO2 per mole è un limite superiore: una parte dell\'azoto resta in soluzione come acido nitrico o esce come NO, meno tossico (IDLH 100 ppm).',
     rad: 'Esafluoruro di uranio: il calcolo riguarda solo l\'HF; la tossicità chimica dell\'uranio (UO2F2) e il rischio radiologico non sono valutati.'
   };
   for (const [u, [form, nome, gas, nota]] of Object.entries(T)) {
@@ -80,10 +83,12 @@
     if (d) { d.modelli = P[u].modelli; d.modello = 'W2'; }
   }
   // clorosilani n.o.s. (21/11/2026): formula del nome tecnico inserita dall'utente, HCl = atomi di Cl legati al silicio
-  for (const u of ['2985', '2986', '2987', '2988']) {
-    const form = 'HCl3Si', pm = pmFormula(form);
+  // 23/11/2026 (richiesta di Luca): anche UN 3361 e 3362, clorosilani tossici (classe 6.1) n.o.s.
+  for (const u of ['2985', '2986', '2987', '2988', '3361', '3362']) {
+    const form = 'HCl3Si', pm = pmFormula(form), toss = u === '3361' || u === '3362';
     P[u] = { modelli: ['W2', 'ERG'], nos: true, nome: 'clorosilano n.o.s.', formula: form, pm, prodotti: [{ gas: 'HCl', n: 3, resa: 3 * GAS.HCl.pm / pm }],
-      avviso: 'Clorosilani n.o.s.: il calcolo usa la formula del nome tecnico indicata (documento di trasporto o scheda di sicurezza). In mancanza del nome tecnico si propone il triclorosilano, fra i clorosilani più comuni quello con la resa in HCl per kg fra le più alte (cautelativo; solo il tetracloruro di silicio rende di più).' };
+      avviso: 'Clorosilani n.o.s.: il calcolo usa la formula del nome tecnico indicata (documento di trasporto o scheda di sicurezza). In mancanza del nome tecnico si propone il triclorosilano, fra i clorosilani più comuni quello con la resa in HCl per kg fra le più alte (cautelativo; solo il tetracloruro di silicio rende di più).'
+        + (toss ? ` UN ${u} è un clorosilano tossico (classe 6.1): il calcolo riguarda solo l'HCl della Tabella 2 ERG; la tossicità propria del clorosilano e dei prodotti organici dell'idrolisi non è valutata${u === '3362' ? ', né l\'infiammabilità (rischio sussidiario 3)' : ''}.` : '') };
     const d = DATA.db[u];
     if (d) { d.modelli = P[u].modelli; d.modello = 'W2'; }
   }
