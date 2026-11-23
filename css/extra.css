@@ -80,3 +80,5 @@ p.emsQ{background:#fdecea}
 .imbsvg text.hl{fill:#c0392b;font-weight:bold}
 details.imbd{margin:3px 0}details.imbd>summary{cursor:pointer}
 @media print{.imbw{overflow:visible;border:0}.imbsvg{width:100%;max-width:100%}.imbsvg text.hl{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+
+.vocisel{display:flex;flex-direction:column;gap:6px;margin:6px 0 10px}.vocisel button{text-align:left}

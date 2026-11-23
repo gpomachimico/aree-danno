@@ -153,6 +153,12 @@ function imbHTML(u, righe, esc, perStampa) {
   }
   return h;
 }
+document.addEventListener('click', e => {
+  const b = e.target.closest && e.target.closest('[data-voce]'); if (!b || !cur || !cur.u || !$('schedabox').contains(b)) return;
+  e.preventDefault();
+  if (b.dataset.voce === 'cambia') delete schedaVoce[cur.u]; else schedaVoce[cur.u] = +b.dataset.voce;
+  $('schedabox').innerHTML = schedaHTML(cur.u); $('schedacard').scrollIntoView({ behavior: 'smooth' });
+});
 document.addEventListener('toggle', e => {
   const el = e.target; if (!el.classList || !el.classList.contains('imbd')) return;
   const k = el.dataset.k, u = el.dataset.u, key = u + '|' + k, box = el.querySelector('.imbc');
@@ -161,18 +167,38 @@ document.addEventListener('toggle', e => {
   if (box.innerHTML) return;
   box.innerHTML = '<p class="small">Caricamento del testo…</p>';
   caricaImb().then(() => {
-    const disp = [...new Set((DATA.dgl[u] || []).flatMap(r => imbCodici(r).disp))];
+    const R = DATA.dgl[u] || [], disp = [...new Set((R.length > 1 && schedaVoce[u] !== undefined ? [R[schedaVoce[u]]] : R).flatMap(r => imbCodici(r).disp))];
     box.innerHTML = imbBlocco(k, u, disp);
   }).catch(() => { box.innerHTML = '<div class="warn">Testi non disponibili senza rete: riprovare con la connessione.</div>'; });
 }, true);
+// Scelta della voce (23/11/2026, richiesta di Luca): con più voci DGL per lo stesso numero ONU (per esempio i gruppi
+// di imballaggio di UN 1993) si mostra prima la scelta, poi solo la voce scelta, anche in stampa.
+const schedaVoce = {};
+function voceEtichette(R) {
+  const nomi = new Set(R.map(r => r['2'])).size > 1, gi = r => r['5'] && r['5'] !== '–' ? 'gruppo di imballaggio ' + r['5'] : 'senza gruppo di imballaggio';
+  let L = R.map(r => (nomi ? r['2'] + ' – ' : '') + gi(r));
+  if (new Set(L).size < L.length) L = L.map((l, i) => `${l} – classe ${R[i]['3']}${R[i]['4'] && R[i]['4'] !== '–' ? ' (' + R[i]['4'] + ')' : ''}${R[i]['6'] && R[i]['6'] !== '–' ? ', SP ' + R[i]['6'] : ''}`);
+  return L.map(l => l.charAt(0).toUpperCase() + l.slice(1));
+}
 function schedaHTML(u, esc = x => x, perStampa = false) {
-  const righe = DATA.dgl[u] || [], d = DATA.db[u], g = d ? DATA.guide[d.guida] : null;
-  if (!righe.length) return '<div class="warn">Numero ONU non presente nella Dangerous Goods List dell\'IMDG Code 42-24.</div>';
+  const tutte = DATA.dgl[u] || [], d = DATA.db[u], g = d ? DATA.guide[d.guida] : null;
+  if (!tutte.length) return '<div class="warn">Numero ONU non presente nella Dangerous Goods List dell\'IMDG Code 42-24.</div>';
   const cls = perStampa ? 'nota' : 'small';
   let h = `<p class="${cls}">Fonte: IMDG Code, Emendamento 42-24 (Ris. MSC.556(108)), Dangerous Goods List e capitoli 3.3, 3.5, 7.1 e 7.2, testo originale inglese; ERG 2024. Dati da estrazione automatica dal PDF ufficiale, con i controlli descritti nella documentazione dell'app.</p>`;
+  let righe = tutte;
+  if (tutte.length > 1) {
+    const iv = schedaVoce[u], E = voceEtichette(tutte);
+    if (iv === undefined || !tutte[iv]) {
+      if (perStampa) return h + '<div class="warn">Scegliere la voce della DGL prima della stampa.</div>';
+      return h + `<p><b>UN ${esc(u)}</b> ha ${tutte.length} voci nella Dangerous Goods List. Scegliere la voce:</p><div class="vocisel">${E.map((l, i) => `<button type="button" class="sec" data-voce="${i}">${esc(l)}</button>`).join('')}</div>`;
+    }
+    righe = [tutte[iv]];
+    h += perStampa ? `<p class="nota">Voce della DGL: ${esc(E[iv])} (una delle ${tutte.length} voci di UN ${esc(u)}).</p>`
+      : `<p class="${cls}">Voce scelta: <b>${esc(E[iv])}</b> (una delle ${tutte.length} voci della DGL per UN ${esc(u)}) – <a href="#" data-voce="cambia">cambia voce</a></p>`;
+  }
   righe.forEach((r, i) => {
     const x = schedaDati(r), mp = /\bP\b/.test(r['4']);
-    h += `${righe.length > 1 ? `<h3>Voce ${i + 1} di ${righe.length} della DGL</h3>` : ''}
+    h += `
     <table class="scheda">
       <tr><td>(1) Numero ONU</td><td><b>UN ${esc(u)}</b>${r.seg ? ` <span class="${cls}">(${esc(r.seg)} modifica dell'emendamento 42-24)</span>` : ''}</td></tr>
       <tr><td>(2) Nome di spedizione</td><td><b>${esc(r['2'])}</b></td></tr>
@@ -241,6 +267,9 @@ $('schedaCalc').onclick = () => { modo = 'aree'; applicaModo(); window.scrollTo(
 }
 $('schedaPrint').onclick = async () => {
   if (!cur || !cur.u || !DATA.dgl) return;
+  if ((DATA.dgl[cur.u] || []).length > 1 && schedaVoce[cur.u] === undefined) {
+    $('schedabox').insertAdjacentHTML('afterbegin', '<div class="warn">Scegliere la voce della DGL prima della stampa.</div>'); $('schedacard').scrollIntoView({ behavior: 'smooth' }); return;
+  }
   stampaTesti.imb = $('stImb').checked; stampaTesti.ems = $('stEms').checked;
   if (stampaTesti.imb) { try { await caricaImb(); } catch (e) { stampaTesti.imb = false; } }
   const s = leggiImpostazioni(), quando = new Date().toLocaleString('it-IT', { dateStyle: 'long', timeStyle: 'short' });
