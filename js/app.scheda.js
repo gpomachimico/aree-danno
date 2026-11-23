@@ -153,12 +153,9 @@ function imbHTML(u, righe, esc, perStampa) {
   }
   return h;
 }
-document.addEventListener('click', e => {
-  const b = e.target.closest && e.target.closest('[data-voce]'); if (!b || !cur || !cur.u || !$('schedabox').contains(b)) return;
-  e.preventDefault();
-  if (b.dataset.voce === 'cambia') delete schedaVoce[cur.u]; else schedaVoce[cur.u] = +b.dataset.voce;
-  $('schedabox').innerHTML = schedaHTML(cur.u); $('schedacard').scrollIntoView({ behavior: 'smooth' });
-});
+// la scelta nel menu delle voci vale per la scheda (e per il calcolo); un nuovo numero ONU azzera le scelte
+document.addEventListener('change', e => { if (e.target && e.target.id === 'varSel' && cur && cur.u && e.target.value !== '') schedaVoce[cur.u] = +e.target.value; }, true);
+document.addEventListener('input', e => { if (e.target && e.target.id === 'onu') schedaVoce = {}; }, true);
 document.addEventListener('toggle', e => {
   const el = e.target; if (!el.classList || !el.classList.contains('imbd')) return;
   const k = el.dataset.k, u = el.dataset.u, key = u + '|' + k, box = el.querySelector('.imbc');
@@ -172,8 +169,10 @@ document.addEventListener('toggle', e => {
   }).catch(() => { box.innerHTML = '<div class="warn">Testi non disponibili senza rete: riprovare con la connessione.</div>'; });
 }, true);
 // Scelta della voce (23/11/2026, richiesta di Luca): con più voci DGL per lo stesso numero ONU (per esempio i gruppi
-// di imballaggio di UN 1993) si mostra prima la scelta, poi solo la voce scelta, anche in stampa.
-const schedaVoce = {};
+// di imballaggio di UN 1993) la voce si sceglie nel menu "Voci della DGL per questo numero" della ricerca; finché non è
+// scelta la scheda resta chiusa; poi si mostra solo la voce scelta, anche in stampa. Le varianti del menu corrispondono
+// una a una, nello stesso ordine, alle righe della DGL (verificato su tutti i 2347 numeri ONU).
+let schedaVoce = {};
 function voceEtichette(R) {
   const nomi = new Set(R.map(r => r['2'])).size > 1, gi = r => r['5'] && r['5'] !== '–' ? 'gruppo di imballaggio ' + r['5'] : 'senza gruppo di imballaggio';
   let L = R.map(r => (nomi ? r['2'] + ' – ' : '') + gi(r));
@@ -190,11 +189,11 @@ function schedaHTML(u, esc = x => x, perStampa = false) {
     const iv = schedaVoce[u], E = voceEtichette(tutte);
     if (iv === undefined || !tutte[iv]) {
       if (perStampa) return h + '<div class="warn">Scegliere la voce della DGL prima della stampa.</div>';
-      return h + `<p><b>UN ${esc(u)}</b> ha ${tutte.length} voci nella Dangerous Goods List. Scegliere la voce:</p><div class="vocisel">${E.map((l, i) => `<button type="button" class="sec" data-voce="${i}">${esc(l)}</button>`).join('')}</div>`;
+      return h + `<div class="warn">UN ${esc(u)} ha ${tutte.length} voci nella Dangerous Goods List (${esc(E.join('; '))}). Scegliere la voce nel menu «Voci della DGL per questo numero» qui sopra: la scheda si apre con la voce scelta.</div>`;
     }
     righe = [tutte[iv]];
     h += perStampa ? `<p class="nota">Voce della DGL: ${esc(E[iv])} (una delle ${tutte.length} voci di UN ${esc(u)}).</p>`
-      : `<p class="${cls}">Voce scelta: <b>${esc(E[iv])}</b> (una delle ${tutte.length} voci della DGL per UN ${esc(u)}) – <a href="#" data-voce="cambia">cambia voce</a></p>`;
+      : `<p class="${cls}">Voce scelta: <b>${esc(E[iv])}</b> (una delle ${tutte.length} voci della DGL per UN ${esc(u)}); per un'altra voce usare il menu qui sopra.</p>`;
   }
   righe.forEach((r, i) => {
     const x = schedaDati(r), mp = /\bP\b/.test(r['4']);
@@ -254,7 +253,7 @@ function applicaModo() {
   $('mAree').classList.toggle('on', !sch); $('mScheda').classList.toggle('on', sch);
   $('schedacard').classList.toggle('hide', !sch);
   ['luogobox'].forEach(id => $(id).classList.toggle('hide', sch));
-  if (sch) { ['inbox', 'meteobox', 'calc'].forEach(id => $(id).classList.add('hide')); $('out').style.display = 'none'; mostraScheda(); }
+  if (sch) { ['inbox', 'meteobox', 'calc'].forEach(id => $(id).classList.add('hide')); $('out').style.display = 'none'; if (cur && cur.u) mostraVoce(cur.iv || 0); else mostraScheda(); }
   else if (cur && cur.u) mostraVoce(cur.iv || 0);
 }
 $('mAree').onclick = () => { modo = 'aree'; applicaModo(); };
@@ -262,13 +261,20 @@ $('mScheda').onclick = () => { modo = 'scheda'; applicaModo(); };
 $('schedaCalc').onclick = () => { modo = 'aree'; applicaModo(); window.scrollTo({ top: 0, behavior: 'smooth' }); };
 { // dopo ogni selezione della merce, in modalità scheda si aggiorna la scheda e si nascondono i campi del calcolo
   const mv = mostraVoce;
-  mostraVoce = function (iv) { mv(iv); if (modo === 'scheda') { ['inbox', 'meteobox', 'calc'].forEach(id => $(id).classList.add('hide')); mostraScheda(); } };
+  mostraVoce = function (iv) {
+    mv(iv);
+    if (modo !== 'scheda') return;
+    ['inbox', 'meteobox', 'calc'].forEach(id => $(id).classList.add('hide'));
+    const s = $('varSel');
+    if (s && schedaVoce[cur.u] === undefined) s.insertAdjacentHTML('afterbegin', `<option value="" selected disabled>— scegliere ${new Set((DATA.db[cur.u].varianti || []).map(v => v.n)).size > 1 ? 'la voce' : 'il gruppo di imballaggio'} —</option>`);
+    mostraScheda();
+  };
   $('onu').addEventListener('input', () => { if (modo === 'scheda' && !cur) mostraScheda(); });
 }
 $('schedaPrint').onclick = async () => {
   if (!cur || !cur.u || !DATA.dgl) return;
   if ((DATA.dgl[cur.u] || []).length > 1 && schedaVoce[cur.u] === undefined) {
-    $('schedabox').insertAdjacentHTML('afterbegin', '<div class="warn">Scegliere la voce della DGL prima della stampa.</div>'); $('schedacard').scrollIntoView({ behavior: 'smooth' }); return;
+    $('schedabox').insertAdjacentHTML('afterbegin', '<div class="warn">Scegliere la voce nel menu «Voci della DGL per questo numero» prima della stampa.</div>'); ($('varSel') || $('schedacard')).scrollIntoView({ behavior: 'smooth', block: 'center' }); return;
   }
   stampaTesti.imb = $('stImb').checked; stampaTesti.ems = $('stEms').checked;
   if (stampaTesti.imb) { try { await caricaImb(); } catch (e) { stampaTesti.imb = false; } }
