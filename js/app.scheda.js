@@ -256,28 +256,36 @@ function mostraScheda() {
   caricaIMDG().then(() => { if (cur && cur.u === u) box.innerHTML = schedaHTML(u); })
     .catch(() => { box.innerHTML = '<div class="warn">Dati IMDG completi non disponibili: connessione assente e dati non ancora salvati sul dispositivo. Riprovare con la rete.</div>'; });
 }
+// Passaggio fra le sezioni (23/11/2026, richiesta di Luca): i campi e il risultato del calcolo non si ridisegnano;
+// in Scheda merce sono solo nascosti (classe modo-scheda sul body) e restano finché non cambia il numero ONU.
+function menuScheda() { // il menu delle voci mostra la scelta della scheda
+  const s = $('varSel'); if (!s || !cur || !cur.u) return;
+  const ph = s.querySelector('option[value=""]');
+  if (schedaVoce[cur.u] === undefined) { if (!ph) s.insertAdjacentHTML('afterbegin', `<option value="" disabled>— scegliere ${new Set((DATA.db[cur.u].varianti || []).map(v => v.n)).size > 1 ? 'la voce' : 'il gruppo di imballaggio'} —</option>`); s.value = ''; }
+  else { if (ph) ph.remove(); s.value = String(schedaVoce[cur.u]); }
+}
+function menuCalcolo() { // il menu delle voci mostra la scelta del calcolo
+  const s = $('varSel'); if (!s || !cur) return;
+  const ph = s.querySelector('option[value=""]'); if (ph) ph.remove();
+  s.value = String(cur.iv || 0);
+}
 function applicaModo() {
   const sch = modo === 'scheda';
   $('mAree').classList.toggle('on', !sch); $('mScheda').classList.toggle('on', sch);
   $('schedacard').classList.toggle('hide', !sch);
-  ['luogobox'].forEach(id => $(id).classList.toggle('hide', sch));
-  if (sch) { ['inbox', 'meteobox', 'calc'].forEach(id => $(id).classList.add('hide')); $('out').style.display = 'none'; if (cur && cur.u) mostraVoce(cur.iv || 0); else mostraScheda(); }
-  else if (cur && cur.u) mostraVoce(cur.iv || 0);
+  document.body.classList.toggle('modo-scheda', sch);
+  if (sch) { menuScheda(); mostraScheda(); }
+  else {
+    menuCalcolo();
+    if (typeof mappa !== 'undefined' && mappa) setTimeout(() => { mappa.invalidateSize(); if ($('out').style.display === 'block' && risultati.length) disegnaMappa(); }, 60);
+  }
 }
 $('mAree').onclick = () => { modo = 'aree'; applicaModo(); };
 $('mScheda').onclick = () => { modo = 'scheda'; applicaModo(); };
 $('schedaCalc').onclick = () => { modo = 'aree'; applicaModo(); window.scrollTo({ top: 0, behavior: 'smooth' }); };
 { // dopo ogni selezione della merce, in modalità scheda si aggiorna la scheda e si nascondono i campi del calcolo
   const mv = mostraVoce;
-  mostraVoce = function (iv) {
-    mv(iv);
-    if (modo !== 'scheda') return;
-    ['inbox', 'meteobox', 'calc'].forEach(id => $(id).classList.add('hide'));
-    const s = $('varSel');
-    if (s && schedaVoce[cur.u] === undefined) s.insertAdjacentHTML('afterbegin', `<option value="" selected disabled>— scegliere ${new Set((DATA.db[cur.u].varianti || []).map(v => v.n)).size > 1 ? 'la voce' : 'il gruppo di imballaggio'} —</option>`);
-    else if (s) s.value = String(schedaVoce[cur.u]); // il menu mostra la scelta della scheda, non quella del calcolo
-    mostraScheda();
-  };
+  mostraVoce = function (iv) { mv(iv); if (modo === 'scheda') { menuScheda(); mostraScheda(); } };
   $('onu').addEventListener('input', () => { if (modo === 'scheda' && !cur) mostraScheda(); });
 }
 $('schedaPrint').onclick = async () => {

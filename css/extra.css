@@ -81,3 +81,5 @@ p.emsQ{background:#fdecea}
 details.imbd{margin:3px 0}details.imbd>summary{cursor:pointer}
 @media print{.imbw{overflow:visible;border:0}.imbsvg{width:100%;max-width:100%}.imbsvg text.hl{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
 
+
+body.modo-scheda #inbox,body.modo-scheda #meteobox,body.modo-scheda #calc,body.modo-scheda #out,body.modo-scheda #luogobox{display:none!important}
