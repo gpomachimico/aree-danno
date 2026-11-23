@@ -67,12 +67,15 @@
     '2978': ['UF6', 'esafluoruro di uranio (UF6 + 2 H2O → UO2F2 + 4 HF)', [['HF', 4]], 'rad'],
     '3507': ['UF6', 'esafluoruro di uranio (UF6 + 2 H2O → UO2F2 + 4 HF)', [['HF', 4]], 'rad'],
     // aggiunta del 23/11/2026 (richiesta di Luca): forma solida dell'acido nitrosilsolforico, stessa reazione di UN 2308
+    // 23/11/2026 (scelta di Luca): miscela AlP / Mg3P2 di composizione variabile; resa dell'AlP (limite superiore), campo facoltativo per la PH3 della scheda di sicurezza
+    '1419': ['AlP', 'fosfuro di magnesio e alluminio (miscela di AlP e Mg3P2 di composizione variabile: calcolo con la resa dell\'AlP, AlP + 3 H2O → Al(OH)3 + PH3, 0,587 kg di PH3 per kg, limite superiore; Mg3P2 + 6 H2O → 3 Mg(OH)2 + 2 PH3 rende 0,504 kg/kg)', [['PH3', 1]], 'mgal'],
     '3456': ['HNO5S', 'acido nitrosilsolforico solido (NOHSO4 + H2O → H2SO4 + HNO2; l\'acido nitroso si decompone in NO, NO2 e HNO3 e l\'NO si ossida a NO2 in aria: tutto l\'azoto contato come NO2, 1 mol per mole, limite superiore)', [['NO2', 1]], 'nitrosS']
   };
   const NOTE = {
     cian: 'Cianuri: in acqua neutra l\'idrolisi è lenta e solo una parte del cianuro si libera come HCN; con acidi il rilascio è rapido e completo. Il 100% proposto vale per il contatto con acidi ed è molto cautelativo per lo spandimento in acqua.',
     nitros: 'Acido nitrosilsolforico: il prodotto commerciale è di solito una soluzione in acido solforico; indicare nel campo "titolo" la percentuale di NOHSO4 della scheda di sicurezza. La resa di 1 mol di NO2 per mole è un limite superiore: una parte dell\'azoto resta in soluzione come acido nitrico o esce come NO, meno tossico (IDLH 100 ppm).',
     nitrosS: 'Acido nitrosilsolforico solido (UN 3456): cristalli di NOHSO4, titolo proposto 100%; se la scheda di sicurezza indica un titolo minore, inserirlo nel campo "titolo". La resa di 1 mol di NO2 per mole è un limite superiore: una parte dell\'azoto resta in soluzione come acido nitrico o esce come NO, meno tossico (IDLH 100 ppm).',
+    mgal: 'Fosfuro di magnesio e alluminio (UN 1419): la composizione varia da prodotto a prodotto. Qualunque sia la proporzione fra AlP e Mg3P2, la fosfina sviluppabile è compresa fra 0,504 e 0,587 kg per kg di fosfuri: il calcolo usa 0,587 (AlP), limite superiore cautelativo. Se la scheda di sicurezza indica la fosfina sviluppabile, inserirla nel campo facoltativo: sostituisce titolo e resa.',
     rad: 'Esafluoruro di uranio: il calcolo riguarda solo l\'HF; la tossicità chimica dell\'uranio (UO2F2) e il rischio radiologico non sono valutati.'
   };
   for (const [u, [form, nome, gas, nota]] of Object.entries(T)) {
@@ -82,6 +85,7 @@
     const d = DATA.db[u];
     if (d) { d.modelli = P[u].modelli; d.modello = 'W2'; }
   }
+  if (P['1419']) P['1419'].ph3opz = true;
   // clorosilani n.o.s. (21/11/2026): formula del nome tecnico inserita dall'utente, HCl = atomi di Cl legati al silicio
   // 23/11/2026 (richiesta di Luca): anche UN 3361 e 3362, clorosilani tossici (classe 6.1) n.o.s.
   for (const u of ['2985', '2986', '2987', '2988', '3361', '3362']) {
