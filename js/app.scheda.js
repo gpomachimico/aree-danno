@@ -66,6 +66,11 @@ function emsHTML(u, righe, esc, perStampa) {
   if (!cod.length) return '';
   const cls = perStampa ? 'nota' : 'small';
   let h = `<h4>Schede EmS (${esc(cod.join(', '))})</h4><p class="${cls}">Fonte: guida IMO EmS, MSC.1/Circ.1588/Rev.4 del 14/07/2026 (allineata all'emendamento 43-26, applicazione volontaria dal 1/1/2027), testo originale inglese. I codici EmS di tutte le voci della DGL 42-24 coincidono con l'indice della Rev.4.${E.note[u] ? ' Codici dall\'indice della guida: ' + esc(E.note[u]) : ''}</p>`;
+  if (perStampa && !stampaTesti.ems) {
+    h += `<ul>${cod.map(c => { const s = E.sched[c]; if (!s) return ''; const casi = s.sc.filter(x => righe.some(r => emsCasoVale(x, u, r)));
+      return `<li><b>${esc(c)}</b> – ${EMS_NOMI[c[0]]}: ${esc(s.t)}${casi.length ? ' – la scheda contiene un caso speciale per questa merce' : ''}</li>`; }).join('')}</ul><p class="nota">Testi delle schede non riportati in questa stampa: vedere la guida EmS (MSC.1/Circ.1588/Rev.4).</p>`;
+    return h;
+  }
   for (const c of cod) {
     const s = E.sched[c]; if (!s) continue;
     const casi = s.sc.filter(x => righe.some(r => emsCasoVale(x, u, r)));
@@ -87,8 +92,9 @@ function emsHTML(u, righe, esc, perStampa) {
 }
 // ---------- Istruzioni di imballaggio e cisterne (23/11/2026): IMDG 42-24, 4.1.4 e 4.2.5, riproduzione vettoriale
 // delle pagine del PDF ufficiale (js/imballaggi.js, circa 1 MB, generato da tools/build_imballaggi.py e caricato solo
-// quando si apre un'istruzione). In stampa vanno le istruzioni aperte a video.
+// quando si apre un'istruzione). In stampa solo i codici, salvo l'opzione "testi completi".
 let imbPronto = null; const imbAperti = new Set();
+const stampaTesti = { imb: false, ems: false }; // scelta di Luca (23/11/2026): in stampa solo i riferimenti, testi a richiesta
 function caricaImb() {
   if (DATA.imb) return Promise.resolve();
   if (!imbPronto) imbPronto = new Promise((ok, ko) => { const s = document.createElement('script'); s.src = 'js/imballaggi.js'; s.onload = ok; s.onerror = () => { imbPronto = null; ko(new Error('istruzioni non disponibili')); }; document.head.appendChild(s); });
@@ -134,13 +140,11 @@ function imbHTML(u, righe, esc, perStampa) {
   if (!istr.length && !cist.length && !bk.length) return '';
   const voci = [...istr.map(k => [k, /^IBC/.test(k) ? 'istruzione di imballaggio per IBC (4.1.4.2)' : /^LP/.test(k) ? 'istruzione per grandi imballaggi (4.1.4.3)' : 'istruzione di imballaggio (4.1.4.1)']),
     ...cist.map(k => [k, 'istruzione per cisterne mobili (4.2.5.2)']), ...tp.map(k => [k, 'disposizione speciale per cisterne mobili (4.2.5.3)'])];
-  let h = `<h4>Imballaggi, IBC e cisterne mobili (4.1.4, 4.2.5)</h4><p class="${cls}">Testo e tabelle riprodotti dalle pagine del PDF ufficiale IMDG 42-24 nella posizione originale${disp.length ? `; in rosso le disposizioni della voce (${esc(disp.join(', '))})` : ''}${cist.length ? '; per le cisterne è evidenziata la riga del codice o del numero ONU' : ''}. ${perStampa ? '' : 'Aprire una voce per vederne il testo; in stampa vanno le voci aperte. Scorrere in orizzontale le tabelle larghe.'}</p>`;
+  let h = `<h4>Imballaggi, IBC e cisterne mobili (4.1.4, 4.2.5)</h4><p class="${cls}">Testo e tabelle riprodotti dalle pagine del PDF ufficiale IMDG 42-24 nella posizione originale${disp.length ? `; in rosso le disposizioni della voce (${esc(disp.join(', '))})` : ''}${cist.length ? '; per le cisterne è evidenziata la riga del codice o del numero ONU' : ''}. ${perStampa ? '' : 'Aprire una voce per vederne il testo; scorrere in orizzontale le tabelle larghe. In stampa compaiono solo i codici, salvo la casella sotto il pulsante di stampa.'}</p>`;
   if (bk.length) h += `<p class="${cls}">Contenitori per rinfuse (colonna 13): ${bk.map(k => `<b>${esc(k)}</b> – ${esc(BK_DESCR[k])}`).join('; ')}; vedere il capitolo 4.3.</p>`;
   if (perStampa) {
-    const ap = voci.filter(([k]) => imbAperti.has(u + '|' + k));
-    for (const [k, d] of ap) h += `<p class="nota"><b>${esc(k)}</b> – ${esc(d)}</p>${DATA.imb ? imbBlocco(k, u, disp) : ''}`;
-    const no = voci.filter(([k]) => !imbAperti.has(u + '|' + k)).map(([k]) => k);
-    if (no.length) h += `<p class="nota">Testi non riportati in questa stampa: ${esc(no.join(', '))} (IMDG Code 42-24, 4.1.4 e 4.2.5).</p>`;
+    if (stampaTesti.imb && DATA.imb) { for (const [k, d] of voci) h += `<p class="nota"><b>${esc(k)}</b> – ${esc(d)}</p>${imbBlocco(k, u, disp)}`; return h; }
+    h += `<ul>${voci.map(([k, d]) => `<li><b>${esc(k)}</b> – ${esc(d)}</li>`).join('')}</ul>${disp.length ? `<p class="nota">Disposizioni della voce nelle istruzioni: ${esc(disp.join(', '))}.</p>` : ''}<p class="nota">Testi non riportati in questa stampa: vedere IMDG Code 42-24, 4.1.4 e 4.2.5.</p>`;
     return h;
   }
   for (const [k, d] of voci) {
@@ -237,7 +241,8 @@ $('schedaCalc').onclick = () => { modo = 'aree'; applicaModo(); window.scrollTo(
 }
 $('schedaPrint').onclick = async () => {
   if (!cur || !cur.u || !DATA.dgl) return;
-  if ([...imbAperti].some(k => k.startsWith(cur.u + '|'))) { try { await caricaImb(); } catch (e) { } }
+  stampaTesti.imb = $('stImb').checked; stampaTesti.ems = $('stEms').checked;
+  if (stampaTesti.imb) { try { await caricaImb(); } catch (e) { stampaTesti.imb = false; } }
   const s = leggiImpostazioni(), quando = new Date().toLocaleString('it-IT', { dateStyle: 'long', timeStyle: 'short' });
   let h = s.carta ? cartaHTML() : '';
   h += `<div class="intest"><h1>Scheda merce pericolosa – UN ${esc(cur.u)}</h1><table class="dati"><tr><td>Data di redazione</td><td>${esc(quando)}</td></tr><tr><td>Riferimenti</td><td>IMDG Code, Emendamento 42-24 (Ris. MSC.556(108)); guida EmS MSC.1/Circ.1588/Rev.4; ERG 2024</td></tr></table></div>`;
@@ -245,5 +250,6 @@ $('schedaPrint').onclick = async () => {
   h += `<p class="nota">Scheda di supporto tecnico redatta con l'app v${VERSIONE}: non sostituisce il documento di trasporto né la consultazione del testo ufficiale del Codice IMDG; i testi delle disposizioni sono riportati nella lingua originale.</p>`;
   h += `<div class="firma"><div>${esc(s.nome)}</div><div>${esc(s.qualifica)}</div><div class="linea">Firma ____________________________</div></div>`;
   $('report').innerHTML = h;
+  stampaTesti.imb = stampaTesti.ems = false;
   window.print();
 };
