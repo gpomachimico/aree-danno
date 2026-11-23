@@ -65,3 +65,12 @@ table.segr td.n{text-align:center;font-weight:bold}
   #report table.segr td.n{text-align:center}
 }
 
+
+table.ems{width:100%;border-collapse:collapse;font-size:13px;margin:4px 0 8px}
+table.ems td{border:1px solid var(--line,#ccc);padding:4px 6px;vertical-align:top}
+table.ems td:first-child{width:30%;font-weight:600}
+.emsSc{border-left:4px solid #c0392b;background:#fdecea;padding:4px 8px;margin:6px 0;font-size:13px}
+.emsSc p{margin:4px 0}
+p.emsQ{background:#fdecea}
+@media (prefers-color-scheme:dark){.emsSc,p.emsQ{background:#4a2420}}
+@media print{.emsSc,p.emsQ{-webkit-print-color-adjust:exact;print-color-adjust:exact}}

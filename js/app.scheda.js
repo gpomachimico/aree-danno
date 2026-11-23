@@ -3,8 +3,9 @@
 // (js/imdg.js, circa 1,2 MB) si caricano solo quando si apre la scheda.
 let modo = 'aree', imdgPronto = null;
 function caricaIMDG() {
-  if (DATA.dgl) return Promise.resolve();
-  if (!imdgPronto) imdgPronto = new Promise((ok, ko) => { const s = document.createElement('script'); s.src = 'js/imdg.js'; s.onload = ok; s.onerror = () => { imdgPronto = null; ko(new Error('dati IMDG non disponibili')); }; document.head.appendChild(s); });
+  if (DATA.dgl && DATA.ems) return Promise.resolve();
+  const carica = src => new Promise((ok, ko) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => ko(new Error('dati non disponibili: ' + src)); document.head.appendChild(s); });
+  if (!imdgPronto) imdgPronto = Promise.all([carica('js/imdg.js'), carica('js/ems.js')]).catch(e => { imdgPronto = null; throw e; });
   return imdgPronto;
 }
 // 7.1.3 categorie di stivaggio (testo del Codice, riassunto in italiano)
@@ -45,6 +46,45 @@ function schedaDati(riga) {
     segr: [prim, ...sub].filter(Boolean).map(k => [k, C.SEGR[k]]),
     e: C.E[riga['7b']] || '' };
 }
+// ---------- Schede EmS (23/11/2026): MSC.1/Circ.1588/Rev.4, testo originale; dati in js/ems.js (tools/build_ems.py) ----------
+function emsCodici(u, r) { // codici F e S della voce; per 3166 e 3542 ("*") quelli indicati nell'indice della guida
+  const s = r['15'] || '', n = DATA.ems && DATA.ems.note[u];
+  return [...new Set(((s === '*' && n ? n : s).match(/[FS]-[A-Z]/g) || []))];
+}
+function emsCasoVale(x, u, r) { // il caso speciale riguarda questa voce?
+  if (x.un.length) return x.un.includes(u);
+  const sub = (r['4'] || '').split(/[\/\s]+/);
+  if (/^Class 4\.3, packing group I$/.test(x.c)) return r['3'] === '4.3' && r['5'] === 'I';
+  if (/^Subsidiary hazard label/.test(x.c)) return sub.includes('4.2') || sub.includes('4.3');
+  if (/^Marine pollutant mark/.test(x.c)) return sub.includes('P');
+  return false;
+}
+const EMS_NOMI = { F: 'Incendio (FIRE)', S: 'Spandimento (SPILLAGE)' };
+function emsHTML(u, righe, esc, perStampa) {
+  const E = DATA.ems; if (!E) return '';
+  const cod = [...new Set(righe.flatMap(r => emsCodici(u, r)))].sort((a, b) => a[0] === b[0] ? 0 : a[0] === 'F' ? -1 : 1);
+  if (!cod.length) return '';
+  const cls = perStampa ? 'nota' : 'small';
+  let h = `<h4>Schede EmS (${esc(cod.join(', '))})</h4><p class="${cls}">Fonte: guida IMO EmS, MSC.1/Circ.1588/Rev.4 del 14/07/2026 (allineata all'emendamento 43-26, applicazione volontaria dal 1/1/2027), testo originale inglese. I codici EmS di tutte le voci della DGL 42-24 coincidono con l'indice della Rev.4.${E.note[u] ? ' Codici dall\'indice della guida: ' + esc(E.note[u]) : ''}</p>`;
+  for (const c of cod) {
+    const s = E.sched[c]; if (!s) continue;
+    const casi = s.sc.filter(x => righe.some(r => emsCasoVale(x, u, r)));
+    let b = '';
+    if (casi.length) b += `<div class="emsSc"><b>Caso speciale per questa merce</b>${casi.map(x => `<p>${x.c ? '<i>' + esc(x.c) + '</i>: ' : ''}${x.p.map(esc).join('<br>')}${x.amb ? ` <span class="${cls}">(nel documento il testo vale per UN ${esc(x.un.join(' e '))} senza una ripartizione certa fra i due numeri; riportato per intero)</span>` : ''}</p>`).join('')}</div>`;
+    b += '<table class="ems">' + s.r.map(r => `<tr><td>${r.l.map(l => esc(l.filter(Boolean).join(' – '))).join('<br>')}</td><td>${r.p.map(esc).join('<br>')}</td></tr>`).join('');
+    if (s.sc.length) b += `<tr><td>Special cases</td><td>${s.sc.map(x => `<p${casi.includes(x) ? ' class="emsQ"' : ''}><b>${esc([x.c, x.un.map(n => 'UN ' + n).join(', ')].filter(Boolean).join(' '))}</b>: ${x.p.map(esc).join(' ')}</p>`).join('')}</td></tr>`;
+    else b += '<tr><td>Special cases</td><td>None.</td></tr>';
+    b += '</table>';
+    const tit = `${esc(c)} – ${EMS_NOMI[c[0]]}: ${esc(s.t)}`;
+    h += perStampa ? `<p class="nota"><b>${tit}</b></p>${b}` : `<details${casi.length ? ' open' : ''}><summary><b>${tit}</b>${casi.length ? ' – caso speciale' : ''}</summary>${b}</details>`;
+  }
+  for (const k of ['F', 'S']) if (cod.some(c => c[0] === k)) {
+    const g = E.lg[k], b = `<ul class="${perStampa ? '' : 'ip'}">${g.punti.map(p => `<li>${esc(p)}</li>`).join('')}</ul><p class="${cls}">${esc(g.prec)}</p>`;
+    const tit = `General guidelines for ${k === 'F' ? 'FIRE' : 'SPILLAGE'}`;
+    h += perStampa ? `<p class="nota"><b>${tit}</b></p>${b}` : `<details><summary>${tit}</summary>${b}</details>`;
+  }
+  return h;
+}
 function schedaHTML(u, esc = x => x, perStampa = false) {
   const righe = DATA.dgl[u] || [], d = DATA.db[u], g = d ? DATA.guide[d.guida] : null;
   if (!righe.length) return '<div class="warn">Numero ONU non presente nella Dangerous Goods List dell\'IMDG Code 42-24.</div>';
@@ -65,7 +105,7 @@ function schedaHTML(u, esc = x => x, perStampa = false) {
       <tr><td>(8)(9) Imballaggi: istruzioni e disposizioni</td><td>${esc(r['8'] || '–')} · ${esc(r['9'] || '–')}</td></tr>
       <tr><td>(10)(11) IBC: istruzioni e disposizioni</td><td>${esc(r['10'] || '–')} · ${esc(r['11'] || '–')}</td></tr>
       <tr><td>(13)(14) Cisterne mobili: istruzioni e disposizioni</td><td>${esc(r['13'] || '–')} · ${esc(r['14'] || '–')}</td></tr>
-      <tr><td>(15) EmS</td><td><b>${esc(r['15'] || '–')}</b> <span class="${cls}">(F = incendio, S = spandimento; le schede EmS sono nella guida IMO MSC.1/Circ.1588 e successive, non incluse)</span></td></tr>
+      <tr><td>(15) EmS</td><td><b>${esc(r['15'] || '–')}</b> <span class="${cls}">(F = incendio, S = spandimento; ${emsCodici(u, r).length ? 'schede riportate più sotto' : 'nessuna scheda assegnata'})</span></td></tr>
       <tr><td>(16a) Stivaggio e movimentazione</td><td>${esc(r['16a'] || '–')}</td></tr>
       <tr><td>(16b) Segregazione</td><td>${esc(r['16b'] || '–')}</td></tr>
       <tr><td>(17) Proprietà e osservazioni</td><td>${esc(r['17'] || '–')}</td></tr>
@@ -85,6 +125,7 @@ function schedaHTML(u, esc = x => x, perStampa = false) {
         <p class="${cls}">${[1, 2, 3, 4, 'X', '*'].map(k => `${k} = ${esc(SEGR_TERMINI[k])}`).join(' · ')}.</p>`;
     }
   });
+  h += emsHTML(u, righe, esc, perStampa);
   if (d && g) {
     h += `<h4>ERG 2024 – Guida ${esc(d.guida)}</h4><p class="${cls}">${esc(g.titolo_it || g.titolo)}</p><table>${ergRighe(g, d.guida).map(([a, b]) => `<tr><td>${esc(a)}</td><td>${esc(b)}</td></tr>`).join('')}</table>`;
     if (d.tih) h += `<p class="${cls}"><b>Sostanza tossica per inalazione (TIH)</b>: distanze della Tabella 1 ERG nella sezione "Aree di danno". ${esc(NOTA_T1)}</p>`;
