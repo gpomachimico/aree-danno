@@ -153,8 +153,15 @@ function imbHTML(u, righe, esc, perStampa) {
   }
   return h;
 }
-// la scelta nel menu delle voci vale per la scheda (e per il calcolo); un nuovo numero ONU azzera le scelte
-document.addEventListener('change', e => { if (e.target && e.target.id === 'varSel' && cur && cur.u && e.target.value !== '') schedaVoce[cur.u] = +e.target.value; }, true);
+// scelte indipendenti (23/11/2026, richiesta di Luca): in Scheda merce il menu cambia solo la voce mostrata e stampata,
+// non la voce usata dal calcolo (cur.iv), che cambia solo con il menu nella sezione Aree di danno.
+// Un nuovo numero ONU azzera la scelta della scheda.
+document.addEventListener('change', e => {
+  if (!e.target || e.target.id !== 'varSel' || modo !== 'scheda' || !cur || !cur.u) return;
+  e.stopImmediatePropagation();
+  if (e.target.value !== '') { schedaVoce[cur.u] = +e.target.value; const ph = e.target.querySelector('option[value=""]'); if (ph) ph.remove(); }
+  mostraScheda();
+}, true);
 document.addEventListener('input', e => { if (e.target && e.target.id === 'onu') schedaVoce = {}; }, true);
 document.addEventListener('toggle', e => {
   const el = e.target; if (!el.classList || !el.classList.contains('imbd')) return;
@@ -169,7 +176,8 @@ document.addEventListener('toggle', e => {
   }).catch(() => { box.innerHTML = '<div class="warn">Testi non disponibili senza rete: riprovare con la connessione.</div>'; });
 }, true);
 // Scelta della voce (23/11/2026, richiesta di Luca): con più voci DGL per lo stesso numero ONU (per esempio i gruppi
-// di imballaggio di UN 1993) la voce si sceglie nel menu "Voci della DGL per questo numero" della ricerca; finché non è
+// di imballaggio di UN 1993) la voce si sceglie nel menu "Voci della DGL per questo numero" della ricerca, in modo
+// indipendente dalla scelta per il calcolo; finché non è
 // scelta la scheda resta chiusa; poi si mostra solo la voce scelta, anche in stampa. Le varianti del menu corrispondono
 // una a una, nello stesso ordine, alle righe della DGL (verificato su tutti i 2347 numeri ONU).
 let schedaVoce = {};
@@ -267,6 +275,7 @@ $('schedaCalc').onclick = () => { modo = 'aree'; applicaModo(); window.scrollTo(
     ['inbox', 'meteobox', 'calc'].forEach(id => $(id).classList.add('hide'));
     const s = $('varSel');
     if (s && schedaVoce[cur.u] === undefined) s.insertAdjacentHTML('afterbegin', `<option value="" selected disabled>— scegliere ${new Set((DATA.db[cur.u].varianti || []).map(v => v.n)).size > 1 ? 'la voce' : 'il gruppo di imballaggio'} —</option>`);
+    else if (s) s.value = String(schedaVoce[cur.u]); // il menu mostra la scelta della scheda, non quella del calcolo
     mostraScheda();
   };
   $('onu').addEventListener('input', () => { if (modo === 'scheda' && !cur) mostraScheda(); });
